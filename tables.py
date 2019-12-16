@@ -1,13 +1,18 @@
 from .queries import SelectQuery
 
 
-class Column(str):
-    pass        
+class Column:
+    def __init__(self, name):
+        self.name = name 
 
-
+    def __str__(self):
+        return '"{}"'.format(self.name)
+        
+        
 class Table:
 
-    def __init__(self, name, pool):
+    def __init__(self, name, pool, schema='public'):
+        self.schema = schema
         self.name = name
         self.pool = pool
 
@@ -24,9 +29,9 @@ class Table:
                                 ON b.table_schema = c.table_schema
                                 AND b.table_name = c.table_name
                                 AND b.constraint_name = c.constraint_name
-                        WHERE a.table_name = '{}'
+                        WHERE a.table_schema = '{}' AND a.table_name = '{}'
                         ORDER BY a.ordinal_position
-                """.format(self.name)
+                """.format(self.schema, self.name)
                 cur.execute(sql)
                 rows = cur.fetchall()
                 
@@ -35,7 +40,7 @@ class Table:
                     self._primary_key = [Column(row[0]) for row in rows if row[1]=='PRIMARY KEY'][0]
 
     def __str__(self):
-        return self.name
+        return '"{}"."{}"'.format(self.schema, self.name)
 
     @property
     def primary_key(self):
@@ -44,4 +49,3 @@ class Table:
     @property
     def query(self):
         return SelectQuery(self)
-
