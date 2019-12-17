@@ -4,7 +4,7 @@ import pickle
 import uuid
 
 import redis
-from .queries import UpdateQuery, DeleteQuery
+from .sql import UpdateQuery, DeleteQuery
 
 class SerializableObject:
     class JSONEncoder(json.JSONEncoder):
