@@ -1,6 +1,8 @@
 import copy
 from datetime import datetime as dt 
 from decimal import Decimal
+from types import MethodType
+
 
 class Column:
     """
@@ -29,7 +31,7 @@ class Column:
         return Condition(self, '!=', Value(value)) 
 
     def __repr__(self):
-        return "{}({})".format(self.__class__.__name__, repr(self.name))
+        return "{}({})".format(self.__class__.__name__, self.name)
 
     def __str__(self):
         return '"{}"."{}"'.format(self.table.name, self.name)
@@ -219,8 +221,10 @@ class Query:
             x = self._resolve_string(key)
             if type(x) == Column:
                 conditions.append(x == v)
+            elif type(x) == MethodType:
+                conditions.append(x(v))
             else:
-                conditions.append(x)
+                conditions.append(Condition(key, '=', Value(val))
 
         q = self.copy()
         q.clauses['WHERE'] = WhereClause(*conditions)
@@ -244,21 +248,6 @@ class SelectQuery(Query):
     def select(self, *args):
         q = self.copy()
         q.clauses['SELECT'] = SelectClause(*args)
-        return q
-
-    def where(self, **kwargs):
-        exprs = list()
-
-        for k, v in kwargs.items():
-            if '__' in k:
-                col, method = k.split('__')
-                expr = self.table.get_column(col).call_method(method, v)
-                exprs.append(expr)
-            else:
-                exprs.append(Expression(k, '=', Value(v)))
-
-        q = self.copy()
-        q.clauses['WHERE'] = WhereClause(*exprs)
         return q
 
     def order_by(self, *args):
@@ -496,7 +485,7 @@ def to_sql(obj):
 
 
 """
-    -- Misc. --
+    Expressions
 """
 
 
@@ -525,18 +514,34 @@ class Condition(Expression):
     """
 
     def __and__(self, value):
-        pass
+        if type(value) not in (bool, Condition, Value):
+            raise TypeError("")
+
+        if type(value) == bool:
+            value = Value(value)
+
+        elif type(value) == Value:
+            if type(value.value) != bool:
+                value = Value(bool(value))
+
+        return Condition(self, 'AND', value)
+
 
     def __or__(self, value):
-        pass
+        if type(value) not in (bool, Condition, Value):
+            raise TypeError("")
 
+        #...
 
-class WhereExpression(Expression):
-    pass 
+        return Condition(self, 'OR', value)
 
 
 class OrderByExpression(Expression):
-    pass
+    def nulls_first(self):
+        pass
+
+    def nulls_last(self):
+        pass
 
 
 class Value():
@@ -569,7 +574,6 @@ class Value():
         
         if type(self.value) == type(None):
             return 'NULL'
-
 
         return str(self.value)
 
