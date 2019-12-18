@@ -1,8 +1,6 @@
 import copy
-from datetime import dateime as dt 
+from datetime import datetime as dt 
 from decimal import Decimal
-from types import MethodType
-
 
 class Column:
     """
@@ -13,22 +11,22 @@ class Column:
         self.table = table
 
     def __eq__(self, value):
-        return Expression(self, '=', Value(value)) 
+        return Condition(self, '=', Value(value)) 
 
     def __ge__(self, value):
-        return Expression(self, '>=', Value(value)) 
+        return Condition(self, '>=', Value(value)) 
 
     def __gt__(self, value):
-        return Expression(self, '>', Value(value)) 
+        return Condition(self, '>', Value(value)) 
 
     def __le__(self, value):
-        return Expression(self, '<=', Value(value)) 
+        return Condition(self, '<=', Value(value)) 
 
     def __lt__(self, value):
-        return Expression(self, '<', Value(value)) 
+        return Condition(self, '<', Value(value)) 
 
     def __ne__(self, value):
-        return Expression(self, '!=', Value(value)) 
+        return Condition(self, '!=', Value(value)) 
 
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__, repr(self.name))
@@ -55,7 +53,7 @@ class Column:
         return self <= value 
 
     def like(self, value):
-        return Expression(self, 'LIKE', Value(value))
+        return Condition(self, 'LIKE', Value(value))
 
     def lt(self, value):
         return self < value
@@ -65,7 +63,7 @@ class Column:
 
     def call_method(self, method_name, value):
         method = getattr(self, method_name)
-        return method(self, value)
+        return method(value)
         
         
 class Table:
@@ -125,12 +123,14 @@ class Table:
     def primary_key(self):
         return self._primary_key
 
-    @property
     def query(self):
         return SelectQuery(self)
 
     def get_column(self, column_name):
-        return getattr(self, column_name)
+        try:
+            return getattr(self, column_name)
+        except AttributeError:
+            return None
 
     def get_columns(self, *args):
         return [self.get_column(arg) for arg in args]
@@ -149,12 +149,29 @@ class Query:
     def __init__(self, table):
         self.table = table 
         self.clause_order = tuple()
-        self.clause_mapping = dict()
-        
-    @property
-    def sql(self):
-        clauses = [self.clauses[c].to_sql() for c in self.clause_order if self.clauses.get(c) is not None]
-        return ' '.join(clauses)
+        self.clauses = dict()
+
+    def __repr__(self):
+        return "{}({})".format(self.__class__.__name__, list(self.clauses.values()))
+
+    def __str__(self):
+        return ' '.join([str(self.clauses[c]) for c in self.clause_order if self.clauses.get(c) is not None])
+
+    def _resolve_string(self, string):
+        """
+            
+        """
+        result = None
+
+        for idx, val in enumerate(string.split('__')):
+            if idx == 0: #check if there is a column with this name
+                result = self.table.get_column(val)
+                if result is None: break
+            else:
+                result = getattr(result, val)        
+
+        return result or string
+
 
     def all(self):
         """
@@ -182,6 +199,33 @@ class Query:
             with conn.cursor() as cur:
                 cur.execute(self.sql)
                 return cur.fetchone()
+
+    def returning(*args):
+        if self.__class__ not in (InsertQuery, UpdateQuery, DeleteQuery):
+            raise NotImplementedError
+
+        #
+
+        q = self.copy()
+        q.clauses['RETURNING'] = ReturningClause()
+
+
+    def where(self, *args, **kwargs):
+        if self.__class__ not in (SelectQuery, UpdateQuery, DeleteQuery):
+            raise NotImplementedError
+
+        conditions = list(args)
+        for key, val in kwargs.items()
+            x = self._resolve_string(key)
+            if type(x) == Column:
+                conditions.append(x == v)
+            else:
+                conditions.append(x)
+
+        q = self.copy()
+        q.clauses['WHERE'] = WhereClause(*conditions)
+        return q
+
 
 
 class SelectQuery(Query):
@@ -263,7 +307,10 @@ class InsertQuery(Query):
         values = list(kwarg.values())
         return self.columns(*columns).values(*values)
 
-    def values(self, *args):
+    def values(self, *args, **kwargs):
+        """
+            ! add logic for kwargs
+        """
         q = self.copy()
         q.clauses['VALUES'] = ValuesClause(*args)
         return q
@@ -291,16 +338,6 @@ class UpdateQuery(Query):
         q.clauses['SET'] = SetClause(**kwargs)
         return q 
 
-    def where(self, **kwargs):
-        q = copy.copy(self)
-        q.clauses['WHERE'] = WhereClause(**kwargs)
-        return q 
-
-    def returning(seld, *args):
-        q = copy.copy(self)
-        q.clauses['RETURNING'] = ReturningClause()
-        return q
-
 
 class DeleteQuery(Query):
     """
@@ -309,16 +346,11 @@ class DeleteQuery(Query):
 
     def __init__(self, table):
         self.table = table 
-        self.clause_order = ('DELETE', 'FROM', 'WHERE')
+        self.clause_order = ('DELETE', 'FROM', 'WHERE', 'RETURNING')
         self.clauses = {
             'DELETE' : DeleteClause(),
             'FROM' : FromClause(self.table),
         }
-
-    def where(self, **kwargs):
-        q = copy.copy(self)
-        q.clauses['WHERE'] = WhereClause(**kwargs)
-        return q
 
 
 """
@@ -337,15 +369,11 @@ class Clause:
             self.format = self.clause + ' ' + self.delimiter.join(['{}'] * len(self.args))
 
     def __repr__(self):
-        return "{}({})".format(self.__class__.__name__, repr(self.clause))
+        return "{}({})".format(self.__class__.__name__, self.args)
 
     def __str__(self):
         args = [str(arg) for arg in self.args]
         return self.format.format(*args)
-
-
-    def to_sql(self):
-        return str(self)
 
 
 class SelectClause(Clause):
@@ -395,18 +423,10 @@ class InsertClause(Clause):
 
 class ColumnsClause(Clause):
     def __init__(self, *args):
-
-        # Being picky with the type checking here because the  
-        # Column clause an ONLY have columns.
-        all_columns = all([True if type(arg) == Column else False for arg in args])
-        if not all_columns:
-            raise TypeError("All args must be of type Column")
-
         # Need to do this because in an INSERT statement it is invalid syntax to
-        # include the qualified table name ex: "table"."column", so I just need the names 
-        # of the column
-        args = [col.name for col in args]
-
+        # include the qualified table name ex: "table"."column", so I just need the names
+        args = ['"{}"'.format(arg.name) if type(arg) == Column else arg for arg in args]
+        
         # Not unpacking the args on purpose
         super().__init__('', '', Value(args))
 
@@ -425,7 +445,7 @@ class UpdateClause(Clause):
 class SetClause(Clause):
     def __init__(self, **kwargs):
         # Convert kwargs into a list of dictionaries
-        args = [{k:v} for k,v in kwargs.items()]
+        args = [{k:Value(v)} for k,v in kwargs.items()]
         super().__init__('SET', ', ', *args)
 
 
@@ -441,22 +461,20 @@ class DeleteClause(Clause):
 
 
 """
-    Expression
+    Expressions
 """
 
 
 def to_sql(obj):
+    """
+        Deprecate
+    """
+
     if type(obj) in (list, tuple):
         # Treat a Python list as  an SQL list.
         # Comma separated values in between parenthesis.
         values = [to_sql(val) for val in obj]
         return "({})".format(', '.join(values))
-
-    # if type(val) == tuple:
-    #     # Each element in a tuple is treated like a piece of an
-    #     # expression to be separated by a whitespace.
-    #     val = [to_sql(arg) for arg in val]
-    #     return ' '.join(val)
 
     if type(obj) == dict:
         # Each key:value pair is considered an expression.
@@ -483,29 +501,34 @@ def to_sql(obj):
 
 
 class Asterisk:
+    def __repr__(self):
+        return "{}({})".format(self.__class__.__name__, '*')
+
     def __str__(self):
         return '*'
-
-
-class Operator(str):
-    """
-        deprecate
-    """
-    def __str__(self):
-        conv = dict(eq='=', ne='!=', lt='<', le='<=', gt='>', ge='>=')
-        return conv.get(self, self.upper())
-
 
 class Expression:
     def __init__(self, *args):
         self.args = args
 
     def __repr__(self):
-        expr = ' '.join([arg for arg in self.args])
-        return "{}({})".format(self.__class__.__name__, expr)
+        return "{}({})".format(self.__class__.__name__, self.args)
 
     def __str__(self):
         return ' '.join([str(arg) for arg in self.args])
+
+
+class Condition(Expression):
+    """
+        An expression that resolves to a boolean
+        Essentially a WhereCondition
+    """
+
+    def __and__(self, value):
+        pass
+
+    def __or__(self, value):
+        pass
 
 
 class WhereExpression(Expression):
@@ -521,12 +544,17 @@ class Value():
         SQL Value
     """
     def __init__(self, value):
-        valid_types = (bool, int, float, str, list, tuple, dict, dt, Decimal)
+        valid_types = (bool, int, float, str, list, tuple, dict, dt, Decimal, Value)
         if type(value) not in valid_types:
             raise TypeError("Invalid Type")
+        
+        if type(value) == Value:
+            self.value = value.value
+        else:
+            self.value = value
 
     def __repr__(self):
-        return "{}({})".format(self.__clas__.__name__, repr(self.value))
+        return "{}({})".format(self.__class__.__name__, repr(self.value))
 
     def __str__(self):
         if type(self.value) in (list, tuple):
@@ -536,12 +564,13 @@ class Value():
         if type(self.value) == dict:
             return ', '.join(["{} = {}".format(k, v) for k,v in self.items()])
 
-        if type(self.value) == str:
+        if type(self.value) in (str, dt):
             return "'{}'".format(self.value)
         
         if type(self.value) == type(None):
             return 'NULL'
 
-        return str(self)
+
+        return str(self.value)
 
 
