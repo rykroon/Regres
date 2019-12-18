@@ -1,4 +1,7 @@
 import copy
+from datetime import dateime as dt 
+from decimal import Decimal
+from types import MethodType
 
 
 class Column:
@@ -10,22 +13,22 @@ class Column:
         self.table = table
 
     def __eq__(self, value):
-        return Expression(self, '=', to_sql(value)) 
+        return Expression(self, '=', Value(value)) 
 
     def __ge__(self, value):
-        return Expression(self, '>=', to_sql(value)) 
+        return Expression(self, '>=', Value(value)) 
 
     def __gt__(self, value):
-        return Expression(self, '>', to_sql(value)) 
+        return Expression(self, '>', Value(value)) 
 
     def __le__(self, value):
-        return Expression(self, '<=', to_sql(value)) 
+        return Expression(self, '<=', Value(value)) 
 
     def __lt__(self, value):
-        return Expression(self, '<', to_sql(value)) 
+        return Expression(self, '<', Value(value)) 
 
     def __ne__(self, value):
-        return Expression(self, '!=', to_sql(value)) 
+        return Expression(self, '!=', Value(value)) 
 
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__, repr(self.name))
@@ -38,6 +41,31 @@ class Column:
 
     def desc(self):
         return Expression(self, 'DESC')
+
+    def eq(self, value):
+        return self == value 
+
+    def ge(self, value):
+        return self >= value
+
+    def gt(self, value):
+        return self > value 
+
+    def le(self, value):
+        return self <= value 
+
+    def like(self, value):
+        return Expression(self, 'LIKE', Value(value))
+
+    def lt(self, value):
+        return self < value
+
+    def ne(self, value):
+        return self != value 
+
+    def call_method(self, method_name, value):
+        method = getattr(self, method_name)
+        return method(self, value)
         
         
 class Table:
@@ -100,6 +128,12 @@ class Table:
     @property
     def query(self):
         return SelectQuery(self)
+
+    def get_column(self, column_name):
+        return getattr(self, column_name)
+
+    def get_columns(self, *args):
+        return [self.get_column(arg) for arg in args]
 
 
 """
@@ -169,13 +203,31 @@ class SelectQuery(Query):
         return q
 
     def where(self, **kwargs):
+        exprs = list()
+
+        for k, v in kwargs.items():
+            if '__' in k:
+                col, method = k.split('__')
+                expr = self.table.get_column(col).call_method(method, v)
+                exprs.append(expr)
+            else:
+                exprs.append(Expression(k, '=', Value(v)))
+
         q = self.copy()
-        q.clauses['WHERE'] = WhereClause(**kwargs)
+        q.clauses['WHERE'] = WhereClause(*exprs)
         return q
 
     def order_by(self, *args):
+        exprs = list()
+
+        for arg in args:
+            if type(arg) == str and '__' in arg:
+                col, method = arg.split('__')
+                exprs.append(self.table.get_column(col).call_method(method))
+            exprs.append(arg)
+
         q = self.copy()
-        q.clauses['ORDER BY'] = OrderByClause(*args)
+        q.clauses['ORDER BY'] = OrderByClause(*exprs)
         return q
 
     def limit(self, count):
@@ -270,7 +322,126 @@ class DeleteQuery(Query):
 
 
 """
-    -- sql --
+    -- Clauses --
+"""
+
+
+class Clause:
+    def __init__(self, clause, delimiter, *args):
+        self.args = args
+        self.clause = clause 
+        self.delimiter = delimiter
+        self.format = ''
+
+        if self.args:
+            self.format = self.clause + ' ' + self.delimiter.join(['{}'] * len(self.args))
+
+    def __repr__(self):
+        return "{}({})".format(self.__class__.__name__, repr(self.clause))
+
+    def __str__(self):
+        args = [str(arg) for arg in self.args]
+        return self.format.format(*args)
+
+
+    def to_sql(self):
+        return str(self)
+
+
+class SelectClause(Clause):
+    """
+        SELECT Clause
+    """
+    def __init__(self, *args):
+        args = args or [Asterisk()]
+        super().__init__('SELECT', ', ', *args)
+
+
+class FromClause(Clause):
+    """
+        FROM Clause
+    """
+    def __init__(self, table_name):
+        super().__init__('FROM', '', table_name)
+
+
+class WhereClause(Clause):
+    """
+        WHERE Clause
+    """
+    def __init__(self, *args):                
+        super().__init__('WHERE', ' AND ', *args)
+
+
+class OrderByClause(Clause):
+    def __init__(self, *args):
+        super().__init__('ORDER BY', ', ', *args)
+
+
+class LimitClause(Clause):
+    def __init__(self, count):
+        super().__init__('LIMIT', '', count)
+
+
+class OffsetClause(Clause):
+    def __init__(self, start):
+        super().__init__('OFFSET', '', start)
+
+
+class InsertClause(Clause):
+    def __init__(self, table_name):
+        super().__init__('INSERT INTO', '', table_name)
+
+
+class ColumnsClause(Clause):
+    def __init__(self, *args):
+
+        # Being picky with the type checking here because the  
+        # Column clause an ONLY have columns.
+        all_columns = all([True if type(arg) == Column else False for arg in args])
+        if not all_columns:
+            raise TypeError("All args must be of type Column")
+
+        # Need to do this because in an INSERT statement it is invalid syntax to
+        # include the qualified table name ex: "table"."column", so I just need the names 
+        # of the column
+        args = [col.name for col in args]
+
+        # Not unpacking the args on purpose
+        super().__init__('', '', Value(args))
+
+
+class ValuesClause(Clause):
+    def __init__(self, *args):
+        # Not unpacking the args on purpose
+        super().__init__('VALUES', '', Value(args))
+
+
+class UpdateClause(Clause):
+    def __init__(self, table_name):
+        super().__init__('UPDATE', '', table_name)
+
+
+class SetClause(Clause):
+    def __init__(self, **kwargs):
+        # Convert kwargs into a list of dictionaries
+        args = [{k:v} for k,v in kwargs.items()]
+        super().__init__('SET', ', ', *args)
+
+
+class ReturningClause(Clause):
+    def __init__(self, *args):
+        args = args or [Asterisk()]
+        super().__init__('RETURNING', ', ', *args)
+
+
+class DeleteClause(Clause):
+    def __init__(self):
+        super().__init__('DELETE', '')
+
+
+"""
+    Expression
 """
 
 
@@ -317,6 +488,9 @@ class Asterisk:
 
 
 class Operator(str):
+    """
+        deprecate
+    """
     def __str__(self):
         conv = dict(eq='=', ne='!=', lt='<', le='<=', gt='>', ge='>=')
         return conv.get(self, self.upper())
@@ -327,7 +501,7 @@ class Expression:
         self.args = args
 
     def __repr__(self):
-        expr = ' '.join([repr(arg) for arg in self.args])
+        expr = ' '.join([arg for arg in self.args])
         return "{}({})".format(self.__class__.__name__, expr)
 
     def __str__(self):
@@ -342,143 +516,32 @@ class OrderByExpression(Expression):
     pass
 
 
-"""
-    -- Clauses --
-"""
-
-
-class Clause:
-    def __init__(self, clause, delimiter, *args):
-        self.args = args
-        self.clause = clause 
-        self.delimiter = delimiter
-        self.format = ''
-
-        if self.args:
-            self.format = self.clause + ' ' + self.delimiter.join(['{}'] * len(self.args))
+class Value():
+    """
+        SQL Value
+    """
+    def __init__(self, value):
+        valid_types = (bool, int, float, str, list, tuple, dict, dt, Decimal)
+        if type(value) not in valid_types:
+            raise TypeError("Invalid Type")
 
     def __repr__(self):
-        return "{}({})".format(self.__class__.__name__, repr(self.clause))
+        return "{}({})".format(self.__clas__.__name__, repr(self.value))
 
-    def to_sql(self):
-        args = [to_sql(arg) for arg in self.args]
-        return self.format.format(*args)
+    def __str__(self):
+        if type(self.value) in (list, tuple):
+            values = tuple([str(val) for val in self])
+            return str(values)
 
+        if type(self.value) == dict:
+            return ', '.join(["{} = {}".format(k, v) for k,v in self.items()])
 
-class SelectClause(Clause):
-    """
-        SELECT Clause
-    """
-    def __init__(self, *args):
-        args = [Expression(arg) if type(arg) == str else arg for arg in args]
-        args = args or [Asterisk()]
-        super().__init__('SELECT', ', ', *args)
+        if type(self.value) == str:
+            return "'{}'".format(self.value)
+        
+        if type(self.value) == type(None):
+            return 'NULL'
 
-
-class FromClause(Clause):
-    """
-        FROM Clause
-    """
-    def __init__(self, table_name):
-        super().__init__('FROM', '', table_name)
+        return str(self)
 
 
-class WhereClause(Clause):
-    """
-        WHERE Clause
-    """
-    def __init__(self, **kwargs):
-        """
-            ideas:
-                ! add *args, all args must be a (Where)Expression, else raise type error
-
-        """
-        args = list()
-        for k, v in kwargs.items():
-            if '__' not in k:
-                args.append({k:v})
-            else:
-                left, op = k.split('__')
-                expr = Expression(left, Operator(op), to_sql(v))
-                args.append(expr)
-                
-        super().__init__('WHERE', ' AND ', *args)
-
-
-class OrderByClause(Clause):
-    def __init__(self, *args):
-        """
-            ! Add type checking so that args must be a Column or an OrderByExpression
-
-        """
-        new_args = list()
-        for arg in args:
-            if type(arg) == Expression:
-                new_args.append(arg)
-            else:
-                new_args.append(Expression(*arg.split('__')))
-
-        super().__init__('ORDER BY', ', ', *new_args)
-
-
-class LimitClause(Clause):
-    def __init__(self, count):
-        super().__init__('LIMIT', '', count)
-
-
-class OffsetClause(Clause):
-    def __init__(self, start):
-        super().__init__('OFFSET', '', start)
-
-
-class InsertClause(Clause):
-    def __init__(self, table_name):
-        super().__init__('INSERT INTO', '', table_name)
-
-
-class ColumnsClause(Clause):
-    def __init__(self, *args):
-
-        # Being picky with the type checking here because the  
-        # Column clause an ONLY have columns.
-        all_columns = all([True if type(arg) == Column else False for arg in args])
-        if not all_columns:
-            raise TypeError("All args must be of type Column")
-
-        # Need to do this because in an INSERT statement it is invalid syntax to
-        # include the qualified table name ex: "table"."column", so I just need the names 
-        # of the column
-        args = [col.name for col in args]
-
-        # Not unpacking the args on purpose
-        super().__init__('', '', args)
-
-
-class ValuesClause(Clause):
-    def __init__(self, *args):
-        # Not unpacking the args on purpose
-        super().__init__('VALUES', '', args)
-
-
-class UpdateClause(Clause):
-    def __init__(self, table_name):
-        super().__init__('UPDATE', '', table_name)
-
-
-class SetClause(Clause):
-    def __init__(self, **kwargs):
-        # Convert kwargs into a list of dictionaries
-        args = [{k:v} for k,v in kwargs.items()]
-        super().__init__('SET', ', ', *args)
-
-
-class ReturningClause(Clause):
-    def __init__(self, *args):
-        args = [Expression(arg) for arg in args]
-        args = args or [Asterisk()]
-        super().__init__('RETURNING', ', ', *args)
-
-
-class DeleteClause(Clause):
-    def __init__(self):
-        super().__init__('DELETE', '')
