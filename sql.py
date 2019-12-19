@@ -46,32 +46,17 @@ class Column:
     def desc(self):
         return Expression(self, 'DESC')
 
-    def eq(self, value):
-        return self == value 
-
-    def ge(self, value):
-        return self >= value
-
     def getattr(self, attr):
         try:
             return getattr(self, attr)
         except AttributeError:
+            if not (attr.startswith('__') and attr.endswith('__')):
+                attr = "__{}__".format(attr)
+                return self.getattr(attr)
             return None
-
-    def gt(self, value):
-        return self > value 
-
-    def le(self, value):
-        return self <= value 
 
     def like(self, value):
         return Condition(self, 'LIKE', Value(value))
-
-    def lt(self, value):
-        return self < value
-
-    def ne(self, value):
-        return self != value 
         
         
 class Table:
@@ -135,11 +120,14 @@ class Table:
         try:
             return getattr(self, attr)
         except AttributeError:
+            if not (attr.startswith('__') and attr.endswith('__')):
+                attr = "__{}__".format(attr)
+                return self.getattr(attr)
             return None
 
     def get_column(self, column_name):
         col = self.getattr(column_name)
-        if col in self.columns:
+        if type(col) == Column:
             return col 
         return None
 
@@ -171,6 +159,17 @@ class Query:
     def __str__(self):
         return ' '.join([str(self.clauses[c]) for c in self.clause_order if self.clauses.get(c) is not None])
 
+    def _resolve_key(self, key):
+        result = None
+
+        for idx, val in enumerate(key.split('__')):
+            if idx == 0:
+                result = result.get_column(val)
+            else:
+                result = result.getattr(val)
+
+        return result
+
     def all(self):
         """
             Fetch all rows
@@ -199,8 +198,9 @@ class Query:
                 return cur.fetchone()
 
     def returning(*args):
-        if self.__class__ not in (InsertQuery, UpdateQuery, DeleteQuery):
-            raise NotImplementedError
+        class_ = self.__class__
+        if class_ not in (InsertQuery, UpdateQuery, DeleteQuery):
+            raise AttributeError("'{}' object has no attribute '{}'".format(class_.__name__, 'returning'))
 
         q = self.copy()
         q.clauses['RETURNING'] = ReturningClause(*args)
@@ -212,24 +212,20 @@ class Query:
             *args: Must be of type Condition
             **kwargs: Used to create Condition objects
         """
-        
-        if self.__class__ not in (SelectQuery, UpdateQuery, DeleteQuery):
-            raise NotImplementedError
 
-        all_args_are_conditions = all([type(arg) == Condition for arg in args])
-        if not all_arg_are_conditions:
-            raise TypeError("Args must be of type Condition")
+        class_ = self.__class__
+        if class_ not in (SelectQuery, UpdateQuery, DeleteQuery):
+            raise AttributeError("'{}' object has no attribute '{}'".format(class_.__name__, 'where'))
 
         conditions = list(args)
         for key, val in kwargs.items():
-            split = key.split('__')
-            col = self.get_column(split[0])
-
-            if len(split) > 1:
-                method = col.getattr(split[1])
-                conditions.append(method(val))
+            x = self._resolve_key(key)
+            if type(x) == Column:
+                conditions.append(x == val)
+            elif type(x) == types.MethodType:
+                conditions.append(x(val))
             else:
-                conditions.append(col == val)
+                conditions.append(x)
 
         q = self.copy()
         q.clauses['WHERE'] = WhereClause(*conditions)
@@ -334,9 +330,6 @@ class UpdateQuery(Query):
             *args: must be of type Assignment
             **kwargs: are used to create Assignment objects
         """
-        all_args_are_assignments = all([type(arg) == Assignment for arg in args])
-        if not all_args_are_assignments:
-            raise TypeError("Args must be of type Assignment")
 
         args = list(args)
         for k, v in kwargs.items():
@@ -390,6 +383,9 @@ class Clause:
     Guidelines for writing Clauses
     - Clauses should be very short. Typically just a call to super().__init__()
     - should only take a single arg or *args, never **kwargs
+
+    ! - maybe add type checking to the clauses since ultimately it is the resposibility of 
+    ! the clause to make sure it has the correct expressions.
 """
 
 
@@ -414,12 +410,20 @@ class WhereClause(Clause):
     """
         WHERE Clause
     """
-    def __init__(self, *args):                
+    def __init__(self, *args):        
+        all_args_are_conditions = all([type(arg) == Condition for arg in args])
+        if not all_arg_are_conditions:
+            raise TypeError("Args must be of type Condition")
+
         super().__init__('WHERE', ' AND ', *args)
 
 
 class OrderByClause(Clause):
     def __init__(self, *args):
+        all_args_are_expressions = all([type(arg) == OrderByExpression for arg in args])
+        if not all_args_are_expressions:
+            raise TypeError("Args must be of type OrderByExpression")
+
         super().__init__('ORDER BY', ', ', *args)
 
 
@@ -457,6 +461,10 @@ class UpdateClause(Clause):
 
 class SetClause(Clause):
     def __init__(self, *args):
+        all_args_are_assignments = all([type(arg) == Assignment for arg in args])
+        if not all_args_are_assignments:
+            raise TypeError("Args must be of type Assignment")
+
         super().__init__('SET', ', ', *args)
 
 
@@ -535,6 +543,9 @@ class Value():
         SQL Value
     """
     def __init__(self, value):
+        """
+            deprecate dict ?
+        """
         valid_types = (bool, int, float, str, list, tuple, dict, dt, Decimal, Value)
         if type(value) not in valid_types:
             raise TypeError("Invalid Type")
