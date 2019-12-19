@@ -39,6 +39,10 @@ class Column:
     def asc(self):
         return Expression(self, 'ASC')
 
+    def assign(self, value):
+        col = '"{}"'.format(self.name)
+        return Assignment(col, '=', Value(value))
+
     def desc(self):
         return Expression(self, 'DESC')
 
@@ -47,6 +51,12 @@ class Column:
 
     def ge(self, value):
         return self >= value
+
+    def getattr(self, attr):
+        try:
+            return getattr(self, attr)
+        except AttributeError:
+            return None
 
     def gt(self, value):
         return self > value 
@@ -62,10 +72,6 @@ class Column:
 
     def ne(self, value):
         return self != value 
-
-    def call_method(self, method_name, value):
-        method = getattr(self, method_name)
-        return method(value)
         
         
 class Table:
@@ -125,17 +131,23 @@ class Table:
     def primary_key(self):
         return self._primary_key
 
-    def query(self):
-        return SelectQuery(self)
-
-    def get_column(self, column_name):
+    def getattr(self, attr):
         try:
-            return getattr(self, column_name)
+            return getattr(self, attr)
         except AttributeError:
             return None
 
+    def get_column(self, column_name):
+        col = self.getattr(column_name)
+        if col in self.columns:
+            return col 
+        return None
+
     def get_columns(self, *args):
         return [self.get_column(arg) for arg in args]
+
+    def query(self):
+        return SelectQuery(self)
 
 
 """
@@ -158,22 +170,6 @@ class Query:
 
     def __str__(self):
         return ' '.join([str(self.clauses[c]) for c in self.clause_order if self.clauses.get(c) is not None])
-
-    def _resolve_string(self, string):
-        """
-            
-        """
-        result = None
-
-        for idx, val in enumerate(string.split('__')):
-            if idx == 0: #check if there is a column with this name
-                result = self.table.get_column(val)
-                if result is None: break
-            else:
-                result = getattr(result, val)        
-
-        return result or string
-
 
     def all(self):
         """
@@ -206,30 +202,33 @@ class Query:
         if self.__class__ not in (InsertQuery, UpdateQuery, DeleteQuery):
             raise NotImplementedError
 
-        #
-
         q = self.copy()
-        q.clauses['RETURNING'] = ReturningClause()
+        q.clauses['RETURNING'] = ReturningClause(*args)
+        return q
 
 
     def where(self, *args, **kwargs):
         if self.__class__ not in (SelectQuery, UpdateQuery, DeleteQuery):
             raise NotImplementedError
 
+        all_args_are_conditions = all([type(arg) == Condition for arg in args])
+        if not all_arg_are_conditions:
+            raise TypeError("Args must be of type Condition")
+
         conditions = list(args)
-        for key, val in kwargs.items()
-            x = self._resolve_string(key)
-            if type(x) == Column:
-                conditions.append(x == v)
-            elif type(x) == MethodType:
-                conditions.append(x(v))
+        for key, val in kwargs.items():
+            split = key.split('__')
+            col = self.get_column(split[0])
+
+            if len(split) > 1:
+                method = col.getattr(split[1])
+                conditions.append(method(val))
             else:
-                conditions.append(Condition(key, '=', Value(val)))
+                conditions.append(col == val)
 
         q = self.copy()
         q.clauses['WHERE'] = WhereClause(*conditions)
         return q
-
 
 
 class SelectQuery(Query):
@@ -254,10 +253,14 @@ class SelectQuery(Query):
         exprs = list()
 
         for arg in args:
-            if type(arg) == str and '__' in arg:
-                col, method = arg.split('__')
-                exprs.append(self.table.get_column(col).call_method(method))
-            exprs.append(arg)
+            split = arg.split('__')
+            col = self.get_colum(split[0])
+            if len(split) > 1:
+                expr = col.getattr(split[1])()
+            else:
+                expr = col.asc()
+
+            exprs.append(expr)
 
         q = self.copy()
         q.clauses['ORDER BY'] = OrderByClause(*exprs)
@@ -286,27 +289,17 @@ class InsertQuery(Query):
             'INSERT' : InsertClause(self.table),
         }
 
-    def columns(self, *args):
-        q = self.copy()
-        q.clauses['COLUMNS'] = ColumnsClause(*args)
-        return q
-
-    def columns_and_values(self, **kwargs):
+    def values(self, **kwargs):
+        """
+            Keys are columns
+            Values are values
+        """
         columns = list(kwargs.keys())
-        values = list(kwarg.values())
-        return self.columns(*columns).values(*values)
+        values = [Value(v) for v in kwargs.values()]            
 
-    def values(self, *args, **kwargs):
-        """
-            ! add logic for kwargs
-        """
         q = self.copy()
-        q.clauses['VALUES'] = ValuesClause(*args)
-        return q
-
-    def returning(seld, *args):
-        q = self.copy()
-        q.clauses['RETURNING'] = ReturningClause(*args)
+        q.clauses['COLUMNS'] = ColumnsClause(columns)
+        q.clauses['VALUES'] = ValuesClause(values)
         return q
 
 
@@ -322,9 +315,19 @@ class UpdateQuery(Query):
             'UPDATE' : UpdateClause(self.table),
         }
 
-    def set(self, **kwargs):
+    def set(self, *args, **kwargs):
+        all_args_are_assignments = all([type(arg) == Assignment for arg in args])
+        if not all_args_are_assignments:
+            raise TypeError("Args must be of type Assignment")
+
+        args = list(args)
+        for k, v in kwargs.items():
+            col = self.get_column(k)
+            expr = col.assign(v)
+            args.append(expr)   
+         
         q = copy.copy(self)
-        q.clauses['SET'] = SetClause(**kwargs)
+        q.clauses['SET'] = SetClause(*args)
         return q 
 
 
@@ -411,11 +414,7 @@ class InsertClause(Clause):
 
 
 class ColumnsClause(Clause):
-    def __init__(self, *args):
-        # Need to do this because in an INSERT statement it is invalid syntax to
-        # include the qualified table name ex: "table"."column", so I just need the names
-        args = ['"{}"'.format(arg.name) if type(arg) == Column else arg for arg in args]
-        
+    def __init__(self, *args):        
         # Not unpacking the args on purpose
         super().__init__('', '', Value(args))
 
@@ -432,9 +431,7 @@ class UpdateClause(Clause):
 
 
 class SetClause(Clause):
-    def __init__(self, **kwargs):
-        # Convert kwargs into a list of dictionaries
-        args = [{k:Value(v)} for k,v in kwargs.items()]
+    def __init__(self, *args):
         super().__init__('SET', ', ', *args)
 
 
@@ -447,41 +444,6 @@ class ReturningClause(Clause):
 class DeleteClause(Clause):
     def __init__(self):
         super().__init__('DELETE', '')
-
-
-"""
-    Expressions
-"""
-
-
-def to_sql(obj):
-    """
-        Deprecate
-    """
-
-    if type(obj) in (list, tuple):
-        # Treat a Python list as  an SQL list.
-        # Comma separated values in between parenthesis.
-        values = [to_sql(val) for val in obj]
-        return "({})".format(', '.join(values))
-
-    if type(obj) == dict:
-        # Each key:value pair is considered an expression.
-        # The key is the left hand side of the expression.
-        # The value is the right hand side of the expression.
-        # The operator is assumed to be '='.
-
-        expressions = ["{} = {}".format(k, to_sql(v)) for k,v in obj.items()]
-
-        return ', '.join(expressions)
-
-    if type(obj) == str:
-        return "'{}'".format(obj)
-
-    if type(obj) == type(None):
-        return 'NULL'
-
-    return str(obj)
 
 
 """
@@ -507,6 +469,10 @@ class Expression:
         return ' '.join([str(arg) for arg in self.args])
 
 
+class Assignment(Expression):
+    pass
+
+
 class Condition(Expression):
     """
         An expression that resolves to a boolean
@@ -514,9 +480,6 @@ class Condition(Expression):
     """
 
     def __and__(self, value):
-        if type(value) not in (bool, Condition, Value):
-            raise TypeError("")
-
         if type(value) == bool:
             value = Value(value)
 
@@ -528,8 +491,6 @@ class Condition(Expression):
 
 
     def __or__(self, value):
-        if type(value) not in (bool, Condition, Value):
-            raise TypeError("")
 
         #...
 
@@ -567,7 +528,7 @@ class Value():
             return str(values)
 
         if type(self.value) == dict:
-            return ', '.join(["{} = {}".format(k, v) for k,v in self.items()])
+            return ', '.join(["{} = {}".format(k, str(v)) for k,v in self.items()])
 
         if type(self.value) in (str, dt):
             return "'{}'".format(self.value)
