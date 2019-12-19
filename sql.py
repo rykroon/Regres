@@ -208,6 +208,11 @@ class Query:
 
 
     def where(self, *args, **kwargs):
+        """
+            *args: Must be of type Condition
+            **kwargs: Used to create Condition objects
+        """
+        
         if self.__class__ not in (SelectQuery, UpdateQuery, DeleteQuery):
             raise NotImplementedError
 
@@ -252,13 +257,22 @@ class SelectQuery(Query):
     def order_by(self, *args):
         exprs = list()
 
+        """
+            I am not 100% satisfied with this
+            Is there any useful way to add **kwargs?
+        """
+
         for arg in args:
-            split = arg.split('__')
-            col = self.get_colum(split[0])
-            if len(split) > 1:
-                expr = col.getattr(split[1])()
-            else:
-                expr = col.asc()
+            if type(arg) == str:
+                split = arg.split('__')
+                col = self.get_colum(split[0])
+                if len(split) > 1:
+                    expr = col.getattr(split[1])()
+                else:
+                    expr = col.asc()
+            
+            if type(arg) == OrderByExpression:
+                expr = arg
 
             exprs.append(expr)
 
@@ -316,6 +330,10 @@ class UpdateQuery(Query):
         }
 
     def set(self, *args, **kwargs):
+        """
+            *args: must be of type Assignment
+            **kwargs: are used to create Assignment objects
+        """
         all_args_are_assignments = all([type(arg) == Assignment for arg in args])
         if not all_args_are_assignments:
             raise TypeError("Args must be of type Assignment")
@@ -366,6 +384,13 @@ class Clause:
     def __str__(self):
         args = [str(arg) for arg in self.args]
         return self.format.format(*args)
+
+
+"""
+    Guidelines for writing Clauses
+    - Clauses should be very short. Typically just a call to super().__init__()
+    - should only take a single arg or *args, never **kwargs
+"""
 
 
 class SelectClause(Clause):
