@@ -224,7 +224,7 @@ class Query:
             elif type(x) == MethodType:
                 conditions.append(x(v))
             else:
-                conditions.append(Condition(key, '=', Value(val))
+                conditions.append(Condition(key, '=', Value(val)))
 
         q = self.copy()
         q.clauses['WHERE'] = WhereClause(*conditions)
