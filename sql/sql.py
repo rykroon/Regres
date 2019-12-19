@@ -37,14 +37,14 @@ class Column:
         return '"{}"."{}"'.format(self.table.name, self.name)
 
     def asc(self):
-        return Expression(self, 'ASC')
+        return OrderByExpression(self, 'ASC')
 
     def assign(self, value):
         col = '"{}"'.format(self.name)
         return Assignment(col, '=', Value(value))
 
     def desc(self):
-        return Expression(self, 'DESC')
+        return OrderByExpression(self, 'DESC')
 
     def getattr(self, attr):
         try:
@@ -101,6 +101,22 @@ class Table:
                             self._primary_key = col
 
                     self._columns = tuple(self._columns)
+
+    def __contains__(self, column):
+        return column in self.columns
+
+    def __getitem__(self, item):
+        #check if there is a column with the given column_name (item)
+        pass
+
+    def __iter__(self):
+        return iter(self.columns)
+
+    def __len__(self):
+        return len(self.columns)
+
+    def __next__(self):
+        return next(self.columns)
 
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__, repr(self.name))
@@ -168,7 +184,7 @@ class Query:
             else:
                 result = result.getattr(val)
 
-        return result
+        return result or key
 
     def all(self):
         """
@@ -244,6 +260,18 @@ class SelectQuery(Query):
             'SELECT' : SelectClause(), 
             'FROM' : FromClause(self.table), 
         }
+
+    def __contains__(self, value):
+        pass
+
+    def __iter__(self):
+        pass
+
+    def __next__(self):
+        pass
+
+    def __len__(self):
+        pass
 
     def select(self, *args):
         q = self.copy()
@@ -363,20 +391,32 @@ class DeleteQuery(Query):
 
 class Clause:
     def __init__(self, clause, delimiter, *args):
-        self.args = args
+        self.expressions = args
         self.clause = clause 
         self.delimiter = delimiter
         self.format = ''
 
-        if self.args:
-            self.format = self.clause + ' ' + self.delimiter.join(['{}'] * len(self.args))
+        if self.expressions:
+            self.format = self.clause + ' ' + self.delimiter.join(['{}'] * len(self))
+
+    def __contains__(self, value):
+        return value in self.expressions
+
+    def __iter__(self):
+        return iter(self.expressions)
+
+    def __len__(self):
+        return len(self.expressions)
+
+    def __next__(self):
+        return next(self.expressions)
 
     def __repr__(self):
-        return "{}({})".format(self.__class__.__name__, self.args)
+        return "{}({})".format(self.__class__.__name__, self.expressions)
 
     def __str__(self):
-        args = [str(arg) for arg in self.args]
-        return self.format.format(*args)
+        expressions = [str(expr) for expr in self]
+        return self.format.format(*expressions)
 
 
 """
@@ -470,7 +510,7 @@ class SetClause(Clause):
 
 class ReturningClause(Clause):
     def __init__(self, *args):
-        args = args or [Asterisk()]
+        args = args or [ASTERISK]
         super().__init__('RETURNING', ', ', *args)
 
 
@@ -485,21 +525,41 @@ class DeleteClause(Clause):
 
 
 class Asterisk:
+    """
+        DEPRECATE
+    """
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__, '*')
 
     def __str__(self):
         return '*'
 
+ASTERISK = Expression('*')
+
 class Expression:
     def __init__(self, *args):
-        self.args = args
+        self.args = list(args)
+
+    def __contains__(self, arg):
+        return arg in self.args
+
+    def __iter__(self):
+        return iter(self.args)
+
+    def __len__(self):
+        return len(self.args)
+
+    def __next__(self):
+        return next(self.args)
 
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__, self.args)
 
     def __str__(self):
         return ' '.join([str(arg) for arg in self.args])
+
+    def append(self, *args):
+        self.args.append(args)
 
 
 class Assignment(Expression):
@@ -554,6 +614,9 @@ class Value():
             self.value = value.value
         else:
             self.value = value
+
+    # potentially add parent class that contains all logical operators
+    # eq, lt, gt, etc. 
 
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__, repr(self.value))
