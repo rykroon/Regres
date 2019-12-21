@@ -1,10 +1,12 @@
 from datetime import datetime as dt
+import hashlib
 import json 
 import pickle
 import uuid
 
+
 import redis
-from .sql import UpdateQuery, DeleteQuery
+from .sql import InsertQuery, UpdateQuery, DeleteQuery
 
 class SerializableObject:
     class JSONEncoder(json.JSONEncoder):
@@ -50,7 +52,7 @@ class RedisModel(SerializableObject):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         #make private? change value to key?
-        self.id = str(uuid.uuid4())
+        self._cache_id = str(uuid.uuid4())
 
     @property
     def conn(self):
@@ -64,11 +66,11 @@ class RedisModel(SerializableObject):
         return instance
 
     def remove(self):
-        return self.conn.delete(self.id)
+        return self.conn.delete(self._cache_id)
 
     def store(self, expire=None):
         expire = expire or self.__class__.expire
-        return self.conn.set(self.id, self.to_pickle(), ex=expire)
+        return self.conn.set(self._cache_id, self.to_pickle(), ex=expire)
 
 
 class Model(SerializableObject):
@@ -76,54 +78,56 @@ class Model(SerializableObject):
     table = None
 
     def __init__(self, **kwargs):
-        self.__dict__ = dict.fromkeys(self.table.columns)
+        self.__dict__ = dict.fromkeys(self.table.column_names)
         self.__dict__.update(kwargs)
+
+    def __getitem__(self, item):
+        if item in self.table.column_names:
+            return getattr(self, item)
+
+        raise KeyError("")
 
     @classmethod
     def get(cls, id):
-        keys = cls.table.columns
-        values = cls.table.query.where(id=id).one()
+        keys = cls.table.column_names
+        values = cls.table.query().where(self.table.primary_key == self.pk).one()
         d = dict(zip(keys, values))
         return cls(**d)
 
     @property
+    def column_values(self):
+        return {k:v for k, v in self.to_dict().items() if k in self.table}
+
+    @property
     def pk(self):
-        return getattr(self, self.table.primary_key)
+        return self[self.table.primary_key.name]
     
     @property
     def table(self):
+        # key = "_{}__{}".format(self.__class__, 'table')
+        # return self.__class__.__dict__[key]
         return self.__class__.table
 
     def delete(self):
-        dq = DeleteQuery(self.table)
-
-        dq = dq.where(**{self.table.primary_key:self.p})
-        return dq.execute()
+        q = DeleteQuery(self.table)
+        q = dq.where(self.table.primary_key == self.pk)
+        return q.execute()
 
     def save(self):
         if self.pk is None:
-            cols = [col for col in self.table.columns if getattr(self, col) is not None]
-            values = [getattr(self, col) for col in self.table.columns if getattr(self, col) is not None]
+            q = InsertQuery(self.table)
 
-            sql = """
-                INSERT INTO {}
-                ({}) VALUES ({})
-                RETURNING *
-            """.format(self.table.table_name, to_sql(cols), to_sql(values))
+            values = {col: self[col] for col in self.table.column_names if self[col] is not None}
+            q = q.values(**values).returning(*self.table.columns)
 
-            with self.table.pool.getconn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(sql)
-                    result = cur.fetchone()
-                    conn.commit()
+            d = dict(zip(self.table.column_names, q.one()))
+            self.__dict__.update(d)
+
         else:
-            d = {k:v for k, v in self.to_dict().items() if k in self.table.columns}
             q = UpdateQuery(self.table)
-            q = q.set(**d).where(**{self.table.primary_key:self.pk}).returning()
+            q = q.set(**self.column_values).where(self.table.primary_key == self.pk).returning(*self.table.columns)
 
-            keys = self.table.columns
-            values = q.one()
-            d = dict(zip(keys, values))
+            d = dict(zip(self.table.column_names, q.one()))
             self.__dict__.update(d)
 
 
@@ -141,6 +145,12 @@ class HybridModel(Model, RedisModel):
             if instance is not None:
                 instance.store()
         return instance
+
+    @property
+    def _cache_id(self):
+        key = "{}:{}".format(self.table.name, self.pk)
+        md5 = hashlib.md5(key.encode())
+        return str(uuid.UUID(md5.hexdigest()))
     
     def delete(self):
         success = super().delete()

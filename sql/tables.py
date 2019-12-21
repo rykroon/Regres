@@ -1,5 +1,5 @@
-from columns import Column
-from queries import SelectQuery
+from .columns import Column
+from .queries import SelectQuery
 
 class Table:
     """
@@ -7,8 +7,8 @@ class Table:
     """
 
     def __init__(self, name, pool, schema='public'):
-        self.schema = schema
-        self.name = name
+        self._schema = schema
+        self._name = name
         self.pool = pool
 
         with self.pool.getconn() as conn:
@@ -44,16 +44,20 @@ class Table:
 
                     self._columns = tuple(self._columns)
 
-    def __contains__(self, column):
-        return column in self.columns
+    def __contains__(self, key):
+        """
+            @param key: The name of a column
+            @returns: True if the column is in the table
+        """
+        return key in self.column_names
 
     def __getitem__(self, item):
-        if type(item) == slice:
-            return self.columns.__getitem__(item)
-
-        for column in self:
-            if column.name == item:
-                return column
+        """
+            @param item: The name of a column.
+            @returns: The column.
+        """
+        if item in self:
+            return getattr(self, item)
 
         raise KeyError("column not found.")
 
@@ -64,10 +68,10 @@ class Table:
         return len(self.columns)
 
     def __next__(self):
-        return next(self.columns)
+        return next(self.column)
 
     def __repr__(self):
-        return "{}({})".format(self.__class__.__name__, repr(self.name))
+        return "{}({})".format(self.__class__.__name__, self.name)
 
     def __str__(self):
         return '"{}"."{}"'.format(self.schema, self.name)
@@ -75,10 +79,24 @@ class Table:
     @property
     def columns(self):
         return self._columns 
+    
+    @property
+    def column_names(self): 
+        return tuple([col.name for col in self])
+
+    @property
+    def name(self):
+        return self._name
 
     @property
     def primary_key(self):
         return self._primary_key
 
+    @property
+    def schema(self):
+        return self._schema
+
     def query(self):
         return SelectQuery(self)
+
+

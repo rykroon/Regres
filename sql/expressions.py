@@ -1,7 +1,6 @@
 from datetime import datetime as dt
 from decimal import Decimal
 
-ASTERISK = Expression('*')
 
 class Expression:
     """
@@ -18,12 +17,44 @@ class Expression:
         return ' '.join([str(arg) for arg in self.args])
 
 
-class Assignment(Expression):
-    def __init__(self, column, expression):
-        self.column_name = '"{}"'.format(column.name)
-        self.expression = expression
-        super().__init__(column, '=', expression)
+ASTERISK = Expression('*')
 
+
+class Function(Expression):
+    def __init__(self, func_name, *args):
+        self.name = func_name 
+        self.args = args
+
+    def __str__(self):
+        args = ', '.join([str(arg) for arg in self.args])
+        return "{}({})".format(self.name, args)
+
+
+class Count(Function):
+    def __init__(self, *args):
+        args = args or [ASTERISK]
+        super().__init__('COUNT', *args)
+
+
+class Distinct(Function):
+    def __init__(self, *args):
+        super().__init__('DISTINCT', *args)
+
+
+class Assignment(Expression):
+    """
+        An Expression that represents the assignment of an expression to a column
+        Used in the SET clause of an UPDATE query
+    """
+    def __init__(self, column, expression):
+        self.column = column
+        self.expression = expression
+        super().__init__(self.column_name, '=', expression)
+
+    @property
+    def column_name(self):
+        return '"{}"'.format(self.column.name)
+    
 
 class Condition(Expression):
     """
@@ -32,14 +63,30 @@ class Condition(Expression):
     def __init__(self, left, operator, right):
         super().__init__(left, operator, right)
 
-    def __and__(self, val):
-        return Condition(str(self), 'AND', str(val))
+    def __and__(self, value):
+        return Condition(self, 'AND', value)
+
+    def __getitem__(self, item):
+        return {
+            'and': self.__and__,
+            'or': self.__or__,
+            'not': self.__neg__
+        }[item]
 
     def __neg__(self):
         return Condition('NOT', str(self))
 
-    def __or__(self, val):
-        return Condition(str(self), 'OR', str(val))
+    def __or__(self, value):
+        return Condition(self, 'OR', val)
+
+
+class OutputExpression(Expression):
+    def __init__(self, column, output_name=None):
+        if output_name:
+            output_name = '"{}"'.format(output_name)
+            super().__init__(column, 'AS', output_name)
+        else:
+            super().__init__(column)
 
 
 class Value():
@@ -47,17 +94,11 @@ class Value():
         SQL Value
     """
     def __init__(self, value):
-        """
-            deprecate dict ?
-        """
-        valid_types = (bool, int, float, str, list, tuple, dict, dt, Decimal, Value)
+        valid_types = (bool, int, float, str, list, tuple, dt, Decimal)
         if type(value) not in valid_types:
             raise TypeError("Invalid Type")
         
-        if type(value) == Value:
-            self.value = value.value
-        else:
-            self.value = value
+        self.value = value
 
     # potentially add parent class that contains all logical operators
     # eq, lt, gt, etc. 
@@ -69,9 +110,6 @@ class Value():
         if type(self.value) in (list, tuple):
             values = tuple([str(val) for val in self.value])
             return str(values)
-
-        if type(self.value) == dict:
-            return ', '.join(["{} = {}".format(k, str(v)) for k,v in self.value.items()])
 
         if type(self.value) in (str, dt):
             return "'{}'".format(self.value)

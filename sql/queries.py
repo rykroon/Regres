@@ -1,6 +1,35 @@
 import copy
-from types import MethodType
-from clauses import *
+from .clauses import *
+from .columns import Column
+
+
+def resolve_arg(table, arg, default):
+    """
+        ex: 'id__asc'
+        table['id']['asc']
+    """
+    attrs = arg.split('__')
+    column = attrs[0]
+    method = attrs[1] if len(attrs) > 1 else default 
+    return table[column][method]()
+
+
+def resolve_kwarg(table, key, val, default):
+    """
+        ex: {'id__ge':5}
+        table['id']['ge'](5)
+    """
+    attrs = key.split('__')
+    column = attrs[0]
+    method = attrs[1] if len(attrs) > 1 else default 
+    return table[column][method](val)
+
+
+"""
+    Guidlines for writing Queries.
+    - queries should be focused on doing conversions so that it passes 
+        the underlying clauses' strict type checking.
+"""
 
 
 class Query:
@@ -19,24 +48,13 @@ class Query:
     def __str__(self):
         return ' '.join([str(self.clauses[c]) for c in self.clause_order if self.clauses.get(c) is not None])
 
-    def _resolve_key(self, key):
-        result = None
-
-        for idx, val in enumerate(key.split('__')):
-            if idx == 0:
-                result = result.get_column(val)
-            else:
-                result = result.getattr(val)
-
-        return result or key
-
     def all(self):
         """
             Fetch all rows
         """
         with self.table.pool.getconn() as conn:
             with conn.cursor() as cur:
-                cur.execute(self.sql)
+                cur.execute(str(self))
                 return cur.fetchall()
 
     def copy(self):
@@ -45,7 +63,7 @@ class Query:
     def execute(self):
         with self.table.pool.getconn() as conn:
             with conn.cursor() as cur:
-                cur.execute(self.sql)
+                cur.execute(str(self))
                 return conn.commit()
 
     def one(self):
@@ -54,16 +72,29 @@ class Query:
         """
         with self.table.pool.getconn() as conn:
             with conn.cursor() as cur:
-                cur.execute(self.sql)
+                cur.execute(str(self))
                 return cur.fetchone()
 
-    def returning(*args):
+    def returning(self, *args):
         class_ = self.__class__
         if class_ not in (InsertQuery, UpdateQuery, DeleteQuery):
             raise AttributeError("'{}' object has no attribute '{}'".format(class_.__name__, 'returning'))
 
+        output_exprs = list()
+        for arg in args:
+            if type(arg) == str:
+                expr = resolve_arg(self.table, arg, 'as')
+                output_exprs.append(expr)
+
+            elif type(arg) == Column:
+                expr = arg.as_()
+                output_exprs.append(expr)
+
+            else:
+                 output_exprs.append(arg)
+        
         q = self.copy()
-        q.clauses['RETURNING'] = ReturningClause(*args)
+        q.clauses['RETURNING'] = ReturningClause(*output_exprs)
         return q
 
 
@@ -79,13 +110,8 @@ class Query:
 
         conditions = list(args)
         for key, val in kwargs.items():
-            x = self._resolve_key(key)
-            if type(x) == Column:
-                conditions.append(x == val)
-            elif type(x) == types.MethodType:
-                conditions.append(x(val))
-            else:
-                conditions.append(x)
+            condition = resolve_kwarg(self.table, key, val, 'eq')
+            conditions.append(condition)
 
         q = self.copy()
         q.clauses['WHERE'] = WhereClause(*conditions)
@@ -117,6 +143,14 @@ class SelectQuery(Query):
     def __len__(self):
         pass
 
+    def count(self, *args):
+        count = Count(*args)
+        return self.select(count)
+
+    def distinct(self, *args):
+        distinct = Distinct(*args)
+        return self.select(distinct)
+
     def select(self, *args):
         q = self.copy()
         q.clauses['SELECT'] = SelectClause(*args)
@@ -125,24 +159,16 @@ class SelectQuery(Query):
     def order_by(self, *args):
         exprs = list()
 
-        """
-            I am not 100% satisfied with this
-            Is there any useful way to add **kwargs?
-        """
-
         for arg in args:
             if type(arg) == str:
-                split = arg.split('__')
-                col = self.get_colum(split[0])
-                if len(split) > 1:
-                    expr = col.getattr(split[1])()
-                else:
-                    expr = col.asc()
-            
-            if type(arg) == OrderByExpression:
-                expr = arg
+                expr = resolve_arg(self.table, arg, 'asc')
+                exprs.append(expr)
 
-            exprs.append(expr)
+            elif type(arg) == Column:
+                expr = arg.asc()
+                exprs.append(expr)
+            else:
+                exprs.append(arg)
 
         q = self.copy()
         q.clauses['ORDER BY'] = OrderByClause(*exprs)
@@ -150,12 +176,12 @@ class SelectQuery(Query):
 
     def limit(self, count):
         q = self.copy()
-        q.clauses['LIMIT'] = LimitClause(count)
+        q.clauses['LIMIT'] = LimitClause(int(count))
         return q
 
     def offset(self, start):
         q = self.copy()
-        q.clauses['OFFSET'] = OffsetClause(start)
+        q.clauses['OFFSET'] = OffsetClause(int(start))
         return q 
 
 
@@ -176,12 +202,12 @@ class InsertQuery(Query):
             Keys are columns
             Values are values
         """
-        columns = list(kwargs.keys())
+        columns = [self.table[col] for col in kwargs.keys()]
         values = [Value(v) for v in kwargs.values()]            
 
         q = self.copy()
-        q.clauses['COLUMNS'] = ColumnsClause(columns)
-        q.clauses['VALUES'] = ValuesClause(values)
+        q.clauses['COLUMNS'] = ColumnsClause(*columns)
+        q.clauses['VALUES'] = ValuesClause(*values)
         return q
 
 
@@ -205,7 +231,7 @@ class UpdateQuery(Query):
 
         args = list(args)
         for k, v in kwargs.items():
-            col = self.get_column(k)
+            col = self.table[k]
             expr = col.assign(v)
             args.append(expr)   
          
