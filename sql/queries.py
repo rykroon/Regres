@@ -64,7 +64,6 @@ class Query:
         with self.table.pool.getconn() as conn:
             with conn.cursor() as cur:
                 cur.execute(str(self))
-                return conn.commit()
 
     def one(self):
         """

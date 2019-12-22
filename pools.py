@@ -13,7 +13,10 @@ class SimpleConnectionPool(SCP):
         conn = super().getconn()
         try:
             yield conn
+        except:
+            conn.rollback()
         finally:
+            conn.commit()
             self.putconn(conn)  
 
 
@@ -26,5 +29,8 @@ class ThreadedConnectionPool(TCP):
         conn = super().getconn()
         try:
             yield conn
+        except:
+            conn.rollback()
         finally:
+            conn.commit()
             self.putconn(conn)  

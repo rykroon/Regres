@@ -90,7 +90,7 @@ class Model(SerializableObject):
     @classmethod
     def get(cls, id):
         keys = cls.table.column_names
-        values = cls.table.query().where(self.table.primary_key == self.pk).one()
+        values = cls.table.query().where(cls.table.primary_key == id).one()
         d = dict(zip(keys, values))
         return cls(**d)
 

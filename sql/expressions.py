@@ -92,10 +92,15 @@ class OutputExpression(Expression):
 class Value():
     """
         SQL Value
+
+        !! Since it is apparently best practice to use the '%s' syntax and passing the args
+        separately for values I may just deprecate this class and add logic in the Expression class
+        that will look out for any python types and act accordingly.
     """
     def __init__(self, value):
-        valid_types = (bool, int, float, str, list, tuple, dt, Decimal)
+        valid_types = (bool, float, int, str, type(None), list, tuple, dt, Decimal)
         if type(value) not in valid_types:
+            print(type(value))
             raise TypeError("Invalid Type")
         
         self.value = value
@@ -108,7 +113,7 @@ class Value():
 
     def __str__(self):
         if type(self.value) in (list, tuple):
-            values = tuple([str(val) for val in self.value])
+            values = "({})".format(', '.join([str(val) for val in self.value]))
             return str(values)
 
         if type(self.value) in (str, dt):

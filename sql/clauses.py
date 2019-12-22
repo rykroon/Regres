@@ -94,7 +94,7 @@ class ColumnsClause(Clause):
         if not all_args_are_columns:
             raise TypeError("args must be of type 'Column'")
 
-        columns = ['"{}"'.format(col.name for col in args)]
+        columns = ['"{}"'.format(col.name) for col in args]
         # Not unpacking the args on purpose
         super().__init__('', '', Value(columns))
 
