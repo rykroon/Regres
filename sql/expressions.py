@@ -1,5 +1,40 @@
-from datetime import datetime as dt
+from datetime import date, time, datetime, timedelta
 from decimal import Decimal
+
+
+class Value():
+    """
+        SQL Value
+    """
+    def __init__(self, value):
+        valid_types = (
+            type(None), 
+            bool, 
+            float, 
+            int,
+            list, 
+            str, 
+            tuple, 
+            date, 
+            time, 
+            datetime, 
+            timedelta, 
+            Decimal
+        )
+
+        if type(value) not in valid_types:
+            raise TypeError("Invalid Type")
+        
+        self.value = value
+
+    # potentially add parent class that contains all logical operators
+    # eq, lt, gt, etc. 
+
+    def __repr__(self):
+        return "{}({})".format(self.__class__.__name__, self.value)
+
+    def __str__(self):
+        return "%s"
 
 
 class Expression:
@@ -8,7 +43,13 @@ class Expression:
         The args are joined with spaces to create an expression
     """
     def __init__(self, *args):
-        self.args = list(args)
+        self.values = list()
+        self.args = list()
+
+        for arg in args:
+            if type(arg) == Value:
+                self.values.append(arg.value)
+            self.args.append(arg)
 
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__, self.args)
@@ -47,6 +88,9 @@ class Assignment(Expression):
         Used in the SET clause of an UPDATE query
     """
     def __init__(self, column, expression):
+        if type(expression) not in (Condition, Value):
+            raise TypeError("expression must be of type 'Condition' or 'Value'")
+
         self.column = column
         self.expression = expression
         super().__init__(self.column_name, '=', expression)
@@ -77,7 +121,7 @@ class Condition(Expression):
         return Condition('NOT', str(self))
 
     def __or__(self, value):
-        return Condition(self, 'OR', val)
+        return Condition(self, 'OR', value)
 
 
 class OutputExpression(Expression):
@@ -89,38 +133,5 @@ class OutputExpression(Expression):
             super().__init__(column)
 
 
-class Value():
-    """
-        SQL Value
 
-        !! Since it is apparently best practice to use the '%s' syntax and passing the args
-        separately for values I may just deprecate this class and add logic in the Expression class
-        that will look out for any python types and act accordingly.
-    """
-    def __init__(self, value):
-        valid_types = (bool, float, int, str, type(None), list, tuple, dt, Decimal)
-        if type(value) not in valid_types:
-            print(type(value))
-            raise TypeError("Invalid Type")
-        
-        self.value = value
-
-    # potentially add parent class that contains all logical operators
-    # eq, lt, gt, etc. 
-
-    def __repr__(self):
-        return "{}({})".format(self.__class__.__name__, self.value)
-
-    def __str__(self):
-        if type(self.value) in (list, tuple):
-            values = "({})".format(', '.join([str(val) for val in self.value]))
-            return str(values)
-
-        if type(self.value) in (str, dt):
-            return "'{}'".format(self.value)
-        
-        if type(self.value) == type(None):
-            return 'NULL'
-
-        return str(self.value)
 

@@ -59,7 +59,7 @@ class Table:
         if item in self:
             return getattr(self, item)
 
-        raise KeyError("column not found.")
+        raise KeyError("column '{}' not found.".format(item))
 
     def __iter__(self):
         return iter(self.columns)

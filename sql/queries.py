@@ -39,14 +39,23 @@ class Query:
 
     def __init__(self, table):
         self.table = table 
-        self.clause_order = tuple()
-        self.clauses = dict()
+        self._clause_order = tuple()
+        self._clauses = dict()
 
     def __repr__(self):
-        return "{}({})".format(self.__class__.__name__, list(self.clauses.values()))
+        return "{}({})".format(self.__class__.__name__, list(self._clauses.values()))
 
     def __str__(self):
-        return ' '.join([str(self.clauses[c]) for c in self.clause_order if self.clauses.get(c) is not None])
+        return ' '.join([str(self._clauses[c]) for c in self._clause_order if self._clauses.get(c) is not None])
+
+    @property
+    def _values(self):
+        result = list()
+        for clause in self._clause_order:
+            clause = self._clauses.get(clause)
+            if clause is not None:
+                result.extend(clause.values)
+        return tuple(result)
 
     def all(self):
         """
@@ -54,7 +63,7 @@ class Query:
         """
         with self.table.pool.getconn() as conn:
             with conn.cursor() as cur:
-                cur.execute(str(self))
+                cur.execute(str(self), self._values)
                 return cur.fetchall()
 
     def copy(self):
@@ -63,7 +72,7 @@ class Query:
     def execute(self):
         with self.table.pool.getconn() as conn:
             with conn.cursor() as cur:
-                cur.execute(str(self))
+                cur.execute(str(self), self._values)
 
     def one(self):
         """
@@ -71,7 +80,7 @@ class Query:
         """
         with self.table.pool.getconn() as conn:
             with conn.cursor() as cur:
-                cur.execute(str(self))
+                cur.execute(str(self), self._values)
                 return cur.fetchone()
 
     def returning(self, *args):
@@ -93,7 +102,7 @@ class Query:
                  output_exprs.append(arg)
         
         q = self.copy()
-        q.clauses['RETURNING'] = ReturningClause(*output_exprs)
+        q._clauses['RETURNING'] = ReturningClause(*output_exprs)
         return q
 
 
@@ -113,7 +122,7 @@ class Query:
             conditions.append(condition)
 
         q = self.copy()
-        q.clauses['WHERE'] = WhereClause(*conditions)
+        q._clauses['WHERE'] = WhereClause(*conditions)
         return q
 
 
@@ -124,8 +133,8 @@ class SelectQuery(Query):
 
     def __init__(self, table):
         self.table = table
-        self.clause_order = ('SELECT', 'FROM', 'WHERE', 'ORDER BY', 'LIMIT', 'OFFSET')
-        self.clauses = {
+        self._clause_order = ('SELECT', 'FROM', 'WHERE', 'ORDER BY', 'LIMIT', 'OFFSET')
+        self._clauses = {
             'SELECT' : SelectClause(), 
             'FROM' : FromClause(self.table), 
         }
@@ -152,7 +161,7 @@ class SelectQuery(Query):
 
     def select(self, *args):
         q = self.copy()
-        q.clauses['SELECT'] = SelectClause(*args)
+        q._clauses['SELECT'] = SelectClause(*args)
         return q
 
     def order_by(self, *args):
@@ -170,17 +179,17 @@ class SelectQuery(Query):
                 exprs.append(arg)
 
         q = self.copy()
-        q.clauses['ORDER BY'] = OrderByClause(*exprs)
+        q._clauses['ORDER BY'] = OrderByClause(*exprs)
         return q
 
     def limit(self, count):
         q = self.copy()
-        q.clauses['LIMIT'] = LimitClause(int(count))
+        q._clauses['LIMIT'] = LimitClause(int(count))
         return q
 
     def offset(self, start):
         q = self.copy()
-        q.clauses['OFFSET'] = OffsetClause(int(start))
+        q._clauses['OFFSET'] = OffsetClause(int(start))
         return q 
 
 
@@ -191,8 +200,8 @@ class InsertQuery(Query):
 
     def __init__(self, table):
         self.table = table 
-        self.clause_order = ('INSERT', 'COLUMNS', 'VALUES', 'RETURNING')
-        self.clauses = {
+        self._clause_order = ('INSERT', 'COLUMNS', 'VALUES', 'RETURNING')
+        self._clauses = {
             'INSERT' : InsertClause(self.table),
         }
 
@@ -205,8 +214,8 @@ class InsertQuery(Query):
         values = [Value(v) for v in kwargs.values()]            
 
         q = self.copy()
-        q.clauses['COLUMNS'] = ColumnsClause(*columns)
-        q.clauses['VALUES'] = ValuesClause(*values)
+        q._clauses['COLUMNS'] = ColumnsClause(*columns)
+        q._clauses['VALUES'] = ValuesClause(*values)
         return q
 
 
@@ -217,8 +226,8 @@ class UpdateQuery(Query):
 
     def __init__(self, table):
         self.table = table
-        self.clause_order = ('UPDATE', 'SET', 'WHERE', 'RETURNING')
-        self.clauses = {
+        self._clause_order = ('UPDATE', 'SET', 'WHERE', 'RETURNING')
+        self._clauses = {
             'UPDATE' : UpdateClause(self.table),
         }
 
@@ -235,7 +244,7 @@ class UpdateQuery(Query):
             args.append(expr)   
          
         q = copy.copy(self)
-        q.clauses['SET'] = SetClause(*args)
+        q._clauses['SET'] = SetClause(*args)
         return q 
 
 
@@ -246,8 +255,8 @@ class DeleteQuery(Query):
 
     def __init__(self, table):
         self.table = table 
-        self.clause_order = ('DELETE', 'FROM', 'WHERE', 'RETURNING')
-        self.clauses = {
+        self._clause_order = ('DELETE', 'FROM', 'WHERE', 'RETURNING')
+        self._clauses = {
             'DELETE' : DeleteClause(),
             'FROM' : FromClause(self.table),
         }

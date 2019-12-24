@@ -2,22 +2,43 @@ from .expressions import *
 from .columns import Column
 #from .tables import Table
 
-class Clause:
-    def __init__(self, clause, delimiter, *args):
-        self.exprs = args
-        self.clause = clause 
-        self.delimiter = delimiter
-        self.format = ''
 
-        if self.exprs:
-            self.format = self.clause + ' ' + self.delimiter.join(['{}'] * len(self.exprs))
+def type_check_args(args, valid_types):
+    if type(valid_types) not in (list, tuple):
+        valid_types = [valid_types]
+
+    for arg in args:
+        if type(arg) not in valid_types:
+            raise TypeError("arg '{}' must be of type '{}'".format(arg, valid_types))
+
+
+class Clause:
+    def __init__(self, name, delimiter, *args):
+        """
+            @param name: The name of the Clause
+            @param delimiter: The delimiter for expressions
+            @param *args: The expressions
+        """
+        self.name = name 
+        self.exprs = args
+        self.delimiter = delimiter
+        self.values = list()
+        for expr in self.exprs:
+            if issubclass(type(expr), Expression):
+                self.values.extend(expr.values)
+            elif type(expr) == Value:
+                self.values.append(expr.value)
 
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__, self.exprs)
 
     def __str__(self):
         exprs = [str(expr) for expr in self.exprs]
-        return self.format.format(*exprs)
+        return self.format().format(*exprs)
+
+    def format(self):
+        substitutions = self.delimiter.join(['{}'] * len(self.exprs))
+        return "{} {}".format(self.name, substitutions)
 
 
 """
@@ -51,33 +72,31 @@ class WhereClause(Clause):
         WHERE Clause
     """
     def __init__(self, *args):        
-        all_args_are_conditions = all([type(arg) == Condition for arg in args])
-        if not all_args_are_conditions:
-            raise TypeError("args must be of type 'Condition'")
+        type_check_args(args, valid_types=Condition)
 
-        super().__init__('WHERE', ' AND ', *args)
+        condition = args[0]
+        for c in args[1:]:
+            condition = condition & c
+
+        super().__init__('WHERE', '', condition)
 
 
 class OrderByClause(Clause):
     def __init__(self, *args):
-        all_args_are_expressions = all([type(arg) == Expression for arg in args])
-        if not all_args_are_expressions:
-            raise TypeError("args must be of type 'Expression'")
+        type_check_args(args, valid_types=Expression)
 
         super().__init__('ORDER BY', ', ', *args)
 
 
 class LimitClause(Clause):
     def __init__(self, count):
-        if type(count) != int:
-            raise TypeError("count must be of type 'int'")
+        type_check_args((count), valid_types=int)
         super().__init__('LIMIT', '', count)
 
 
 class OffsetClause(Clause):
     def __init__(self, start):
-        if type(start) != int:
-            raise TypeError("start must be of type 'int'")
+        type_check_args((start), valid_types=int)
         super().__init__('OFFSET', '', start)
 
 
@@ -90,20 +109,24 @@ class InsertClause(Clause):
 
 class ColumnsClause(Clause):
     def __init__(self, *args):        
-        all_args_are_columns = all([type(arg) == Column for arg in args])
-        if not all_args_are_columns:
-            raise TypeError("args must be of type 'Column'")
+        type_check_args(args, valid_types=Column)
 
         columns = ['"{}"'.format(col.name) for col in args]
-        # Not unpacking the args on purpose
-        super().__init__('', '', Value(columns))
+        super().__init__('COLUMNS', ', ', *columns)
+
+    def format(self):
+        substitutions = self.delimiter.join(['{}'] * len(self.exprs))
+        return "({})".format(substitutions)
 
 
 class ValuesClause(Clause):
     def __init__(self, *args):
+        type_check_args(args, valid_types=Value)
+        super().__init__('VALUES', ', ', *args)
 
-        # Not unpacking the args on purpose
-        super().__init__('VALUES', '', Value(args))
+    def format(self):
+        substitutions = self.delimiter.join(['{}'] * len(self.exprs))
+        return "{}({})".format(self.name, substitutions)
 
 
 class UpdateClause(Clause):
@@ -115,19 +138,14 @@ class UpdateClause(Clause):
 
 class SetClause(Clause):
     def __init__(self, *args):
-        all_args_are_assignments = all([type(arg) == Assignment for arg in args])
-        if not all_args_are_assignments:
-            raise TypeError("args must be of type 'Assignment'")
-
+        type_check_args(args, valid_types=Assignment)
         super().__init__('SET', ', ', *args)
 
 
 class ReturningClause(Clause):
     def __init__(self, *args):
         if args:
-            all_args_are_output_expressions = all([type(arg) == OutputExpression for arg in args])
-            if not all_args_are_output_expressions:
-                raise TypeError("args must be of type 'OutputExpression'")
+            type_check_args(args, valid_types=OutputExpression)
         else:
             args = [ASTERISK]
         super().__init__('RETURNING', ', ', *args)
