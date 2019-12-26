@@ -49,12 +49,12 @@ class Query:
         return ' '.join([str(self._clauses[c]) for c in self._clause_order if self._clauses.get(c) is not None])
 
     @property
-    def _values(self):
+    def vars(self):
         result = list()
         for clause in self._clause_order:
             clause = self._clauses.get(clause)
             if clause is not None:
-                result.extend(clause.values)
+                result.extend(clause.vars)
         return tuple(result)
 
     def all(self):
@@ -63,7 +63,7 @@ class Query:
         """
         with self.table.pool.getconn() as conn:
             with conn.cursor() as cur:
-                cur.execute(str(self), self._values)
+                cur.execute(str(self), self.vars)
                 return cur.fetchall()
 
     def copy(self):
@@ -72,7 +72,7 @@ class Query:
     def execute(self):
         with self.table.pool.getconn() as conn:
             with conn.cursor() as cur:
-                cur.execute(str(self), self._values)
+                cur.execute(str(self), self.vars)
 
     def one(self):
         """
@@ -80,7 +80,7 @@ class Query:
         """
         with self.table.pool.getconn() as conn:
             with conn.cursor() as cur:
-                cur.execute(str(self), self._values)
+                cur.execute(str(self), self.vars)
                 return cur.fetchone()
 
     def returning(self, *args):

@@ -43,12 +43,12 @@ class Expression:
         The args are joined with spaces to create an expression
     """
     def __init__(self, *args):
-        self.values = list()
+        self.vars = list()
         self.args = list()
 
         for arg in args:
             if type(arg) == Value:
-                self.values.append(arg.value)
+                self.vars.append(arg.value)
             self.args.append(arg)
 
     def __repr__(self):
@@ -64,7 +64,7 @@ ASTERISK = Expression('*')
 class Function(Expression):
     def __init__(self, func_name, *args):
         self.name = func_name 
-        self.args = args
+        super().__init__(args)
 
     def __str__(self):
         args = ', '.join([str(arg) for arg in self.args])
@@ -87,13 +87,13 @@ class Assignment(Expression):
         An Expression that represents the assignment of an expression to a column
         Used in the SET clause of an UPDATE query
     """
-    def __init__(self, column, expression):
-        if type(expression) not in (Condition, Value):
-            raise TypeError("expression must be of type 'Condition' or 'Value'")
+    def __init__(self, column, value):
+        if type(value) != Value:
+            raise TypeError("value must be of type 'Value'")
 
         self.column = column
-        self.expression = expression
-        super().__init__(self.column_name, '=', expression)
+        self.value = value
+        super().__init__(self.column_name, '=', value)
 
     @property
     def column_name(self):
@@ -114,11 +114,12 @@ class Condition(Expression):
         return {
             'and': self.__and__,
             'or': self.__or__,
-            'not': self.__neg__
+            'not': self.__invert__
         }[item]
 
-    def __neg__(self):
-        return Condition('NOT', str(self))
+    def __invert__(self):
+        #fix this later
+        return Condition('NOT', self)
 
     def __or__(self, value):
         return Condition(self, 'OR', value)

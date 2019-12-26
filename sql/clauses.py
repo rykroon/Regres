@@ -22,12 +22,12 @@ class Clause:
         self.name = name 
         self.exprs = args
         self.delimiter = delimiter
-        self.values = list()
+        self.vars = list()
         for expr in self.exprs:
             if issubclass(type(expr), Expression):
-                self.values.extend(expr.values)
+                self.vars.extend(expr.vars)
             elif type(expr) == Value:
-                self.values.append(expr.value)
+                self.vars.append(expr.value)
 
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__, self.exprs)
@@ -84,7 +84,6 @@ class WhereClause(Clause):
 class OrderByClause(Clause):
     def __init__(self, *args):
         type_check_args(args, valid_types=Expression)
-
         super().__init__('ORDER BY', ', ', *args)
 
 
@@ -110,7 +109,6 @@ class InsertClause(Clause):
 class ColumnsClause(Clause):
     def __init__(self, *args):        
         type_check_args(args, valid_types=Column)
-
         columns = ['"{}"'.format(col.name) for col in args]
         super().__init__('COLUMNS', ', ', *columns)
 

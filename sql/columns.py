@@ -1,4 +1,6 @@
 from .expressions import Assignment, Condition, Expression, OutputExpression, Value
+from base import column_name
+
 
 class Column:
     """
@@ -24,8 +26,8 @@ class Column:
 
         return {
             'as':   self.as_,
-            'asc':  self.asc,
-            'desc': self.desc,
+            'asc':  self.__pos__,
+            'desc': self.__neg__,
             'eq':   self.__eq__,
             'ge':   self.__ge__,
             'gt':   self.__gt__,
@@ -48,6 +50,12 @@ class Column:
     def __ne__(self, value):
         return Condition(self, '!=', Value(value)) 
 
+    def __neg__(self):
+        return Expression(self, 'DESC')
+
+    def __pos__(self):
+        return Expression(self, 'ASC')
+
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__, self.name)
 
@@ -57,18 +65,18 @@ class Column:
     def as_(self, output_name=None):
         return OutputExpression(self, output_name)
 
-    def asc(self):
-        return Expression(self, 'ASC')
-
     def assign(self, value):
         return Assignment(self, Value(value))
-
-    def desc(self):
-        return Expression(self, 'DESC')
 
     def in_(self, value):
         return Condition(self, 'IN', Value(value))
 
     def like(self, value):
         return Condition(self, 'LIKE', Value(value))
+
+    def column_name(self, qualified=True):
+        if qualified:
+            return ColumnName('"{}"."{}"'.format(self.table.name, self.name))
+        else:
+            return ColumnName('"{}"'.format(self.name))
 
