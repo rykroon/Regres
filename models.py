@@ -1,4 +1,4 @@
-from datetime import datetime as dt
+from datetime import datetime 
 import hashlib
 import json 
 import pickle
@@ -11,7 +11,7 @@ from .sql import InsertQuery, UpdateQuery, DeleteQuery
 class SerializableObject:
     class JSONEncoder(json.JSONEncoder):
         def default(self, o):
-            if type(0) == dt:
+            if type(o) == datetime:
                 return o.isoformat()
             return super().default(o)
 
@@ -51,12 +51,7 @@ class RedisModel(SerializableObject):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        #make private? change value to key?
-        self._cache_id = str(uuid.uuid4())
-
-    @property
-    def conn(self):
-        return self.__class__.conn
+        self._uuid = str(uuid.uuid4())
 
     @classmethod
     def retrieve(cls, id):
@@ -66,11 +61,11 @@ class RedisModel(SerializableObject):
         return instance
 
     def remove(self):
-        return self.conn.delete(self._cache_id)
+        return self.__class__.conn.delete(self._uuid)
 
     def store(self, expire=None):
         expire = expire or self.__class__.expire
-        return self.conn.set(self._cache_id, self.to_pickle(), ex=expire)
+        return self.__class__.conn.set(self._uuid, self.to_pickle(), ex=expire)
 
 
 class Model(SerializableObject):
@@ -82,7 +77,10 @@ class Model(SerializableObject):
         self.__dict__.update(kwargs)
 
     def __getitem__(self, item):
-        if item in self.table.column_names:
+        """
+            @param item: the name of a column.
+        """
+        if item in self.__class__.table:
             return getattr(self, item)
 
         raise KeyError("")
@@ -95,40 +93,29 @@ class Model(SerializableObject):
         return cls(**d)
 
     @property
-    def column_values(self):
-        return {k:v for k, v in self.to_dict().items() if k in self.table}
-
-    @property
     def pk(self):
-        return self[self.table.primary_key.name]
-    
-    @property
-    def table(self):
-        # key = "_{}__{}".format(self.__class__, 'table')
-        # return self.__class__.__dict__[key]
-        return self.__class__.table
+        return self[self.__class__.table.primary_key.name]
 
     def delete(self):
-        q = DeleteQuery(self.table)
-        q = dq.where(self.table.primary_key == self.pk)
+        q = DeleteQuery(self.__class__.table)
+        id_filter = self.__class__.table.primary_key == self.pk
+        q = q.where(id_filter)
         return q.execute()
 
     def save(self):
         if self.pk is None:
-            q = InsertQuery(self.table)
-
-            values = {col: self[col] for col in self.table.column_names if self[col] is not None}
-            q = q.values(**values).returning(*self.table.columns)
-
-            d = dict(zip(self.table.column_names, q.one()))
-            self.__dict__.update(d)
+            q = InsertQuery(self.__class__.table)
+            values = {col: self[col] for col in self.__class__.table.column_names if self[col] is not None}
+            q = q.values(**values).returning(*self.__class__.table.columns)
 
         else:
-            q = UpdateQuery(self.table)
-            q = q.set(**self.column_values).where(self.table.primary_key == self.pk).returning(*self.table.columns)
+            q = UpdateQuery(self.__class__.table)
+            values = {col.name: self[col.name] for col in self.__class__.table}
+            id_filter = self.__class__.table.primary_key == self.pk
+            q = q.set(**values).where(id_filter).returning(*self.__class__.table.columns)
 
-            d = dict(zip(self.table.column_names, q.one()))
-            self.__dict__.update(d)
+        d = dict(zip(self.__class__.table.column_names, q.one()))
+        self.__dict__.update(d)
 
 
 class HybridModel(Model, RedisModel):
@@ -147,8 +134,8 @@ class HybridModel(Model, RedisModel):
         return instance
 
     @property
-    def _cache_id(self):
-        key = "{}:{}".format(self.table.name, self.pk)
+    def _uuid(self):
+        key = "{}:{}".format(self._table.name, self.pk)
         md5 = hashlib.md5(key.encode())
         return str(uuid.UUID(md5.hexdigest()))
     
