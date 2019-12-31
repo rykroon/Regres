@@ -135,6 +135,9 @@ class HybridModel(Model, RedisModel):
 
     @property
     def _uuid(self):
+        """
+            @returns: A UUID based on the MD5 hash of the table name and primary key.
+        """
         key = "{}:{}".format(self._table.name, self.pk)
         md5 = hashlib.md5(key.encode())
         return str(uuid.UUID(md5.hexdigest()))

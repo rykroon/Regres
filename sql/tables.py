@@ -1,3 +1,5 @@
+import copy
+
 from .columns import Column
 from .queries import SelectQuery
 
@@ -10,6 +12,7 @@ class Table:
         self._schema = schema
         self._name = name
         self.pool = pool
+        self.alias = None
 
         with self.pool.getconn() as conn:
             with conn.cursor() as cur:
@@ -74,7 +77,10 @@ class Table:
         return "{}({})".format(self.__class__.__name__, self.name)
 
     def __str__(self):
-        return '"{}"."{}"'.format(self.schema, self.name)
+        table_name = '"{}"."{}"'.format(self.schema, self.name)
+        if self.alias:
+            table_name = "{} AS {}".format(table_name, self.alias)
+        return table_name
 
     @property
     def columns(self):
@@ -95,6 +101,18 @@ class Table:
     @property
     def schema(self):
         return self._schema
+
+    def as_(self, alias):
+        """
+            @param alias: An alias for the table.
+            @returns: A copy of the table. The new table has the alias.
+        """
+        t = self.copy()
+        t.alias = alias 
+        return t
+
+    def copy(self):
+        return copy.copy(self)
 
     def query(self):
         return SelectQuery(self)

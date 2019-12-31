@@ -1,5 +1,4 @@
-from .expressions import Assignment, Condition, Expression, OutputExpression, Value
-from base import column_name
+from .expressions import *
 
 
 class Column:
@@ -60,13 +59,22 @@ class Column:
         return "{}({})".format(self.__class__.__name__, self.name)
 
     def __str__(self):
-        return '"{}"."{}"'.format(self.table.name, self.name)
+        return self.qualified_name
+
+    @property
+    def qualified_name(self):
+        table_name = self.table.alias or self.table.name
+        return '"{}"."{}"'.format(table_name, self.name)
+
+    @property
+    def unqualified_name(self):
+        return '"{}"'.format(self.name)
 
     def as_(self, output_name=None):
         return OutputExpression(self, output_name)
 
     def assign(self, value):
-        return Assignment(self, Value(value))
+        return Expression(self.unqualified_name, '=', Value(value))
 
     def in_(self, value):
         return Condition(self, 'IN', Value(value))
@@ -74,9 +82,4 @@ class Column:
     def like(self, value):
         return Condition(self, 'LIKE', Value(value))
 
-    def column_name(self, qualified=True):
-        if qualified:
-            return ColumnName('"{}"."{}"'.format(self.table.name, self.name))
-        else:
-            return ColumnName('"{}"'.format(self.name))
 

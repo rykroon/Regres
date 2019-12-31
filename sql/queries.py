@@ -16,8 +16,14 @@ def resolve_arg(table, arg, default):
 
 def resolve_kwarg(table, key, val, default):
     """
+        @param table: The table object associated with the query.
+        @param key: The key of a kwarg.
+        @param value: The value of a kwarg
+        @param default: The default method to call if one is not provided.
+        
         ex: {'id__ge':5}
         table['id']['ge'](5)
+        result = "table"."id" >= 5
     """
     attrs = key.split('__')
     column = attrs[0]
@@ -173,8 +179,7 @@ class SelectQuery(Query):
                 exprs.append(expr)
 
             elif type(arg) == Column:
-                expr = arg.asc()
-                exprs.append(expr)
+                exprs.append(+arg)
             else:
                 exprs.append(arg)
 
@@ -210,7 +215,7 @@ class InsertQuery(Query):
             Keys are columns
             Values are values
         """
-        columns = [self.table[col] for col in kwargs.keys()]
+        columns = [self.table[k] for k in kwargs.keys()]
         values = [Value(v) for v in kwargs.values()]            
 
         q = self.copy()

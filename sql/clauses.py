@@ -1,5 +1,5 @@
-from .expressions import *
 from .columns import Column
+from .expressions import *
 #from .tables import Table
 
 
@@ -89,13 +89,13 @@ class OrderByClause(Clause):
 
 class LimitClause(Clause):
     def __init__(self, count):
-        type_check_args((count), valid_types=int)
+        type_check_args(count, valid_types=int)
         super().__init__('LIMIT', '', count)
 
 
 class OffsetClause(Clause):
     def __init__(self, start):
-        type_check_args((start), valid_types=int)
+        type_check_args(start, valid_types=int)
         super().__init__('OFFSET', '', start)
 
 
@@ -109,8 +109,8 @@ class InsertClause(Clause):
 class ColumnsClause(Clause):
     def __init__(self, *args):        
         type_check_args(args, valid_types=Column)
-        columns = ['"{}"'.format(col.name) for col in args]
-        super().__init__('COLUMNS', ', ', *columns)
+        column_names = [col.unqualified_name for col in args]
+        super().__init__('COLUMNS', ', ', *column_names)
 
     def format(self):
         substitutions = self.delimiter.join(['{}'] * len(self.exprs))
@@ -136,7 +136,9 @@ class UpdateClause(Clause):
 
 class SetClause(Clause):
     def __init__(self, *args):
-        type_check_args(args, valid_types=Assignment)
+        type_check_args(args, valid_types=Expression)
+        #maybe do additional type checking
+        #replaced Assignment Expression with a tuple containing a Column and an Expression
         super().__init__('SET', ', ', *args)
 
 
