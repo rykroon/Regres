@@ -35,7 +35,7 @@ class SerializableObject:
         return instance
 
     def to_dict(self):
-        return self.__dict__.copy() 
+        return vars(self)
 
     def to_json(self, cls=JSONEncoder, **kwargs):
         return json.dumps(self.to_dict(), cls=cls, **kwargs) 

@@ -1,15 +1,5 @@
 from .columns import Column
 from .expressions import *
-#from .tables import Table
-
-
-def type_check_args(args, valid_types):
-    if type(valid_types) not in (list, tuple):
-        valid_types = [valid_types]
-
-    for arg in args:
-        if type(arg) not in valid_types:
-            raise TypeError("arg '{}' must be of type '{}'".format(arg, valid_types))
 
 
 class Clause:
@@ -20,8 +10,9 @@ class Clause:
             @param *args: The expressions
         """
         self.name = name 
-        self.exprs = args
         self.delimiter = delimiter
+        self.exprs = args
+
         self.vars = list()
         for expr in self.exprs:
             if issubclass(type(expr), Expression):
@@ -30,7 +21,7 @@ class Clause:
                 self.vars.append(expr.value)
 
     def __repr__(self):
-        return "{}({})".format(self.__class__.__name__, self.exprs)
+        return "{}({})".format(self.__class__.__name__, '...')
 
     def __str__(self):
         exprs = [str(expr) for expr in self.exprs]
@@ -44,7 +35,7 @@ class Clause:
 """
     Guidelines for writing Clauses
     - Clauses are strict when it comes to typing.
-    - should only take a single arg or *args, never **kwargs
+    - Should only take a single arg or *args, never **kwargs
 """
 
 
@@ -54,6 +45,7 @@ class SelectClause(Clause):
     """
     def __init__(self, *args):
         args = args or [ASTERISK]
+        type_check_args(args, Exrepssion)
         super().__init__('SELECT', ', ', *args)
 
 
@@ -62,53 +54,53 @@ class FromClause(Clause):
         FROM Clause
     """
     def __init__(self, table):
-        #if type(table) != Table:
-        #    raise TypeError("table must be of type 'Table'")
-        super().__init__('FROM', '', table.name)
+        super().__init__('FROM', '', table)
 
 
 class WhereClause(Clause):
     """
         WHERE Clause
     """
-    def __init__(self, *args):        
-        type_check_args(args, valid_types=Condition)
-
-        condition = args[0]
-        for c in args[1:]:
-            condition = condition & c
-
+    def __init__(self, condition):        
+        if type(condition) != Condition:
+            raise TypeError("condition must be of type '{}'".format(Condition.__name__))
         super().__init__('WHERE', '', condition)
 
 
 class OrderByClause(Clause):
     def __init__(self, *args):
+        if not all([issubclass(type(arg), Expression) for arg in args]):
+            raise TypeError("*args must be of type '{}'".format(Expression.__name__))
+
         type_check_args(args, valid_types=Expression)
         super().__init__('ORDER BY', ', ', *args)
 
 
 class LimitClause(Clause):
     def __init__(self, count):
-        type_check_args(count, valid_types=int)
+        if type(count) != int:
+            raise TypeError("count must be of type '{}'".format(int.__name__))
+
         super().__init__('LIMIT', '', count)
 
 
 class OffsetClause(Clause):
     def __init__(self, start):
-        type_check_args(start, valid_types=int)
+        if type(count) != int:
+            raise TypeError("start must be of type '{}'".format(int.__name__))
         super().__init__('OFFSET', '', start)
 
 
 class InsertClause(Clause):
     def __init__(self, table):
-        #if type(table) != Table:
-        #    raise TypeError("table must be of type 'Table'")
-        super().__init__('INSERT INTO', '', table.name)
+        super().__init__('INSERT INTO', '', table)
 
 
 class ColumnsClause(Clause):
     def __init__(self, *args):        
-        type_check_args(args, valid_types=Column)
+        if not all([issubclass(type(arg), Column) for arg in args]):
+            raise TypeError("*args must be of type '{}'".format(Condition.__name__))
+
         column_names = [col.unqualified_name for col in args]
         super().__init__('COLUMNS', ', ', *column_names)
 
@@ -129,25 +121,18 @@ class ValuesClause(Clause):
 
 class UpdateClause(Clause):
     def __init__(self, table):
-        #if type(table) != Table:
-        #    raise TypeError("table must be of type 'Table'")
-        super().__init__('UPDATE', '', table.name)
+        super().__init__('UPDATE', '', table)
 
 
 class SetClause(Clause):
     def __init__(self, *args):
         type_check_args(args, valid_types=Expression)
-        #maybe do additional type checking
-        #replaced Assignment Expression with a tuple containing a Column and an Expression
         super().__init__('SET', ', ', *args)
 
 
 class ReturningClause(Clause):
     def __init__(self, *args):
-        if args:
-            type_check_args(args, valid_types=OutputExpression)
-        else:
-            args = [ASTERISK]
+        args = args or [ASTERISK]
         super().__init__('RETURNING', ', ', *args)
 
 

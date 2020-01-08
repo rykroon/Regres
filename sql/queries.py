@@ -1,4 +1,6 @@
 import copy
+from functools import reduce
+
 from .clauses import *
 from .columns import Column
 
@@ -47,6 +49,7 @@ class Query:
         self.table = table 
         self._clause_order = tuple()
         self._clauses = dict()
+        self.results = None
 
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__, list(self._clauses.values()))
@@ -70,7 +73,8 @@ class Query:
         with self.table.pool.getconn() as conn:
             with conn.cursor() as cur:
                 cur.execute(str(self), self.vars)
-                return cur.fetchall()
+                self.results = cur.fetchall()
+                return self.result
 
     def copy(self):
         return copy.copy(self)
@@ -87,7 +91,8 @@ class Query:
         with self.table.pool.getconn() as conn:
             with conn.cursor() as cur:
                 cur.execute(str(self), self.vars)
-                return cur.fetchone()
+                self.results = cur.fetchone()
+                return self.results
 
     def returning(self, *args):
         class_ = self.__class__
@@ -127,8 +132,10 @@ class Query:
             condition = resolve_kwarg(self.table, key, val, 'eq')
             conditions.append(condition)
 
+        condition = reduce(lambda x,y: x & y, conditions)
+
         q = self.copy()
-        q._clauses['WHERE'] = WhereClause(*conditions)
+        q._clauses['WHERE'] = WhereClause(condition)
         return q
 
 
@@ -155,15 +162,13 @@ class SelectQuery(Query):
         pass
 
     def __len__(self):
-        pass
+        return self.count()
 
-    def count(self, *args):
-        count = Count(*args)
-        return self.select(count)
-
-    def distinct(self, *args):
-        distinct = Distinct(*args)
-        return self.select(distinct)
+    def count(self):
+        count = Count()
+        q = self.select(count)
+        q.fetchone()
+        return q.result #???
 
     def select(self, *args):
         q = self.copy()
