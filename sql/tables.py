@@ -79,7 +79,7 @@ class Table:
     def __str__(self):
         table_name = '"{}"."{}"'.format(self.schema, self.name)
         if self.alias:
-            table_name = "{} AS {}".format(table_name, self.alias)
+            table_name = '{} AS "{}"'.format(table_name, self.alias)
         return table_name
 
     @property
@@ -89,6 +89,10 @@ class Table:
     @property
     def column_names(self): 
         return tuple([col.name for col in self])
+
+    @property
+    def qualified_column_names(self):
+        return tuple([col.qualified_name for col in self])
 
     @property
     def name(self):

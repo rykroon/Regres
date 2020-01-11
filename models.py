@@ -73,7 +73,7 @@ class Model(SerializableObject):
     table = None
 
     def __init__(self, **kwargs):
-        self.__dict__ = dict.fromkeys(self.table.column_names)
+        self.__dict__ = dict.fromkeys(self.__class__.table.column_names)
         self.__dict__.update(kwargs)
 
     def __getitem__(self, item):
@@ -87,8 +87,21 @@ class Model(SerializableObject):
 
     @classmethod
     def get(cls, id):
+        query = """
+            SELECT *
+                FROM {table_name}
+                WHERE {condition}
+        """.format(
+            table_name=cls.table,
+            condition="{} = %s".format(cls.table.primary_key.qualified_name)
+        )
+        
+        with cls.table.pool.getconn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, (id,))
+                values = cur.fetchone()
+        
         keys = cls.table.column_names
-        values = cls.table.query().where(cls.table.primary_key == id).one()
         d = dict(zip(keys, values))
         return cls(**d)
 
@@ -97,25 +110,70 @@ class Model(SerializableObject):
         return self[self.__class__.table.primary_key.name]
 
     def delete(self):
-        q = DeleteQuery(self.__class__.table)
-        id_filter = self.__class__.table.primary_key == self.pk
-        q = q.where(id_filter)
-        return q.execute()
+        query = """
+            DELETE FROM {table_name} 
+                WHERE {condition}
+        """.format(
+            table_name=self.__class__.table,
+            condition="{} = %s".format(self.__class__.table.primary_key.qualified_name)
+        )
+
+        with self.__class__.table.pool.getconn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, (self.pk,))
+                return True 
+
+        return False
 
     def save(self):
         if self.pk is None:
-            q = InsertQuery(self.__class__.table)
-            values = {col: self[col] for col in self.__class__.table.column_names if self[col] is not None}
-            q = q.values(**values).returning(*self.__class__.table.columns)
-
+            query, vars = self._insert()
         else:
-            q = UpdateQuery(self.__class__.table)
-            values = {col.name: self[col.name] for col in self.__class__.table}
-            id_filter = self.__class__.table.primary_key == self.pk
-            q = q.set(**values).where(id_filter).returning(*self.__class__.table.columns)
+            query, vars = self._update()
 
-        d = dict(zip(self.__class__.table.column_names, q.one()))
-        self.__dict__.update(d)
+        with self.__class__.table.pool.getconn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, vars)
+                results = cur.fetchone()
+                d = dict(zip(self.__class__.table.column_names, results))
+                self.__dict__.update(d)
+                return True
+        return False
+
+
+    def _insert(self):
+        query = """
+            INSERT INTO {table_name} ({column_names}) 
+                VALUES({values}) 
+                RETURNING *
+        """.format(
+            table_name=self.__class__.table,
+            column_names=', '.join([str(col) for col in self.__class__.table if self[col.name] is not None]),
+            values=', '.join(['%s' for col in self.__class__.table if self[col.name] is not None])
+        )
+
+        vars = tuple([self[col.name] for col in self.__class__.table if self[col.name] is not None])
+
+        return query, vars
+
+    def _update(self):
+        query = """
+            UPDATE {table_name} 
+                SET {assignments} 
+                WHERE {condition} 
+                RETURNING *
+        """.format(
+            table_name=self.__class__.table,
+            assignments=', '.join(["{} = %s".format(col) for col in self.__class__.table]),
+            condition="{} = %s".format(self.__class__.table.primary_key.qualified_name)
+        )
+
+        vars = [self[col.name] for col in self.__class__.table]
+        vars.append(self.pk)
+        vars = tuple(vars)
+
+        return query, vars
+
 
 
 class HybridModel(Model, RedisModel):

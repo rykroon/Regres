@@ -46,7 +46,7 @@ class Expression:
         return '{}({})'.format(self.__class__.__name__, '...')
 
     def __str__(self):
-        return ' '.join([str(arg) for arg in args])
+        return ' '.join([str(arg) for arg in self.args])
 
 
 ASTERISK = Expression('*')

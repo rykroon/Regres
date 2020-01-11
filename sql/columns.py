@@ -10,10 +10,10 @@ class Column:
         self.table = table
 
     def __eq__(self, value):
-        return Condition(self, '=', Value(value)) 
+        return Condition(self.qualified_name, '=', Value(value)) 
 
     def __ge__(self, value):
-        return Condition(self, '>=', Value(value)) 
+        return Condition(self.qualified_name, '>=', Value(value)) 
 
     def __getitem__(self, item):
         """
@@ -38,48 +38,44 @@ class Column:
         }[item]
 
     def __gt__(self, value):
-        return Condition(self, '>', Value(value)) 
+        return Condition(self.qualified_name, '>', Value(value)) 
 
     def __le__(self, value):
-        return Condition(self, '<=', Value(value)) 
+        return Condition(self.qualified_name, '<=', Value(value)) 
 
     def __lt__(self, value):
-        return Condition(self, '<', Value(value)) 
+        return Condition(self.qualified_name, '<', Value(value)) 
 
     def __ne__(self, value):
-        return Condition(self, '!=', Value(value)) 
+        return Condition(self.qualified_name, '!=', Value(value)) 
 
     def __neg__(self):
-        return Expression(self, 'DESC')
+        return Expression(self.qualified_name, 'DESC')
 
     def __pos__(self):
-        return Expression(self, 'ASC')
+        return Expression(self.qualified_name, 'ASC')
 
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__, self.name)
 
     def __str__(self):
-        return self.qualified_name
+        return '"{}"'.format(self.name)
 
     @property
     def qualified_name(self):
         table_name = self.table.alias or self.table.name
         return '"{}"."{}"'.format(table_name, self.name)
 
-    @property
-    def unqualified_name(self):
-        return '"{}"'.format(self.name)
-
     def as_(self, output_name=None):
-        return OutputExpression(self, output_name)
+        return OutputExpression(self.qualified_name, output_name)
 
     def assign(self, value):
-        return Expression(self.unqualified_name, '=', Value(value))
+        return Expression(self, '=', Value(value))
 
     def in_(self, value):
-        return Condition(self, 'IN', Value(value))
+        return Condition(self.qualified_name, 'IN', Value(value))
 
     def like(self, value):
-        return Condition(self, 'LIKE', Value(value))
+        return Condition(self.qualified_name, 'LIKE', Value(value))
 
 
