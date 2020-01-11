@@ -16,7 +16,7 @@ class Table:
 
         with self.pool.getconn() as conn:
             with conn.cursor() as cur:
-                sql = """
+                query = """
                     SELECT a.column_name, c.constraint_type 
                         FROM information_schema.columns AS a
                             LEFT JOIN information_schema.key_column_usage AS b
@@ -27,10 +27,10 @@ class Table:
                                 ON b.table_schema = c.table_schema
                                 AND b.table_name = c.table_name
                                 AND b.constraint_name = c.constraint_name
-                        WHERE a.table_schema = '{}' AND a.table_name = '{}'
+                        WHERE a.table_schema = %s AND a.table_name = %s
                         ORDER BY a.ordinal_position ASC
-                """.format(self.schema, self.name)
-                cur.execute(sql)
+                """
+                cur.execute(query, (self.schema, self.name))
                 rows = cur.fetchall()
                 
                 if rows:
@@ -105,18 +105,6 @@ class Table:
     @property
     def schema(self):
         return self._schema
-
-    def as_(self, alias):
-        """
-            @param alias: An alias for the table.
-            @returns: A copy of the table. The new table has the alias.
-        """
-        t = self.copy()
-        t.alias = alias 
-        return t
-
-    def copy(self):
-        return copy.copy(self)
 
     def query(self):
         return SelectQuery(self)
