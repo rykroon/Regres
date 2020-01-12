@@ -1,3 +1,3 @@
 from .tables import Table
-from .queries import SelectQuery, InsertQuery, UpdateQuery, DeleteQuery
+from .queries import SelectQuery
 from .pools import SimpleConnectionPool, ThreadedConnectionPool
