@@ -1,4 +1,5 @@
-from datetime import datetime 
+from datetime import datetime, date, time, timedelta
+from decimal import Decimal
 import hashlib
 import json 
 import pickle
@@ -11,8 +12,15 @@ class ObjectDoesNotExist(Exception):
 class SerializableObject:
     class JSONEncoder(json.JSONEncoder):
         def default(self, o):
-            if type(o) == datetime:
+            if type(o) in (datetime, date, time):
                 return o.isoformat()
+
+            elif type(o) == timedelta:
+                return o.total_seconds()
+
+            elif type(o) == Decimal:
+                return float(o)
+
             return super().default(o)
 
     @classmethod
