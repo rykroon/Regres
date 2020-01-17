@@ -10,14 +10,35 @@ class SimpleConnectionPool(SCP):
     
     @contextmanager
     def getconn(self):
-        conn = super().getconn()
         try:
+            conn = super().getconn()
             yield conn
+            conn.commit()
         except:
             conn.rollback()
+            raise
         finally:
-            conn.commit()
             self.putconn(conn)  
+
+    @contextmanager
+    def cursor(self):
+        with self.getconn() as conn:
+            try:
+                cur = conn.cursor()
+                yield cur 
+            except:
+                raise
+            finally:
+                cur.close()
+
+    def execute(self, query, vars=None):
+        with self.cursor() as cur:
+            cur.execute(query, vars)
+
+    def fetchall(self, query, vars=None):
+        with self.cursor() as cur:
+            cur.execute(query, vars)
+            return cur.fetchall()
 
 
 class ThreadedConnectionPool(TCP):
@@ -26,11 +47,32 @@ class ThreadedConnectionPool(TCP):
     
     @contextmanager
     def getconn(self):
-        conn = super().getconn()
         try:
+            conn = super().getconn()
             yield conn
+            conn.commit()
         except:
             conn.rollback()
+            raise
         finally:
-            conn.commit()
             self.putconn(conn)  
+
+    @contextmanager
+    def cursor(self):
+        with self.getconn() as conn:
+            try:
+                cur = conn.cursor()
+                yield cur 
+            except:
+                raise
+            finally:
+                cur.close()
+
+    def execute(self, query, vars=None):
+        with self.cursor() as cur:
+            cur.execute(query, vars)
+
+    def fetchall(self, query, vars=None):
+        with self.cursor() as cur:
+            cur.execute(query, vars)
+            return cur.fetchall()
