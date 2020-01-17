@@ -40,6 +40,11 @@ class SimpleConnectionPool(SCP):
             cur.execute(query, vars)
             return cur.fetchall()
 
+    def fetchone(self, query, vars=None):
+        with self.cursor() as cur:
+            cur.execute(query, vars)
+            return cur.fetchone()
+
 
 class ThreadedConnectionPool(TCP):
     def __init__(self, minconn, maxconn, database='postgres', user='postgres', host='localhost', *args, **kwargs):
@@ -76,3 +81,8 @@ class ThreadedConnectionPool(TCP):
         with self.cursor() as cur:
             cur.execute(query, vars)
             return cur.fetchall()
+
+    def fetchone(self, query, vars=None):
+        with self.cursor() as cur:
+            cur.execute(query, vars)
+            return cur.fetchone()

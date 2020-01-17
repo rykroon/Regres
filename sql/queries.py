@@ -67,32 +67,16 @@ class Query:
         return tuple(result)
 
     def all(self):
-        """
-            Fetch all rows
-        """
-        with self.table.pool.getconn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(str(self), self.vars)
-                self.results = cur.fetchall()
-                return self.result
+        return self.table.pool.fetchall(str(self), self.vars)
 
     def copy(self):
         return copy.copy(self)
 
     def execute(self):
-        with self.table.pool.getconn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(str(self), self.vars)
+        self.table.pool.execute(str(self), self.vars)
 
     def one(self):
-        """
-            Fetch one row
-        """
-        with self.table.pool.getconn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(str(self), self.vars)
-                self.results = cur.fetchone()
-                return self.results
+        return self.table.pool.fetchone(str(self), self.vars)
 
     def returning(self, *args):
         class_ = self.__class__

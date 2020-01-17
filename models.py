@@ -4,7 +4,9 @@ import json
 import pickle
 import uuid
 
-import redis
+
+class ObjectDoesNotExist(Exception):
+    pass
 
 class SerializableObject:
     class JSONEncoder(json.JSONEncoder):
@@ -12,9 +14,6 @@ class SerializableObject:
             if type(o) == datetime:
                 return o.isoformat()
             return super().default(o)
-
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
 
     @classmethod
     def from_dict(cls, d):
@@ -32,6 +31,9 @@ class SerializableObject:
             raise TypeError("Object is not of type {}".format(cls.__name__))
         return instance
 
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
     def to_dict(self):
         return vars(self)
 
@@ -47,44 +49,69 @@ class RedisModel(SerializableObject):
     conn = None
     expire = None
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._uuid = str(uuid.uuid4())
+    """
+        Class Methods
+    """
 
     @classmethod
-    def retrieve(cls, id):
+    def __get(cls, id):
         instance = cls.conn.get(id) 
         if instance:
             instance = cls.from_pickle(instance)
         return instance
 
-    def remove(self):
-        return self.__class__.conn.delete(self._uuid)
+    @classmethod
+    def get(cls, id):
+        return cls.__get(id)
 
-    def store(self, expire=None):
-        expire = expire or self.__class__.expire
-        return self.__class__.conn.set(self._uuid, self.to_pickle(), ex=expire)
+    """
+        Magic Methods
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._uuid = str(uuid.uuid4())
+
+    """
+        Properties
+    """
+
+    @property
+    def _conn(self):
+        return self.__class__.conn
+
+    @property
+    def _expire(self):
+        return self.__class__.expire
+
+    """
+        Instance Methods
+    """
+
+    def __delete(self):
+        return self._conn.delete(self._uuid)
+
+    def __save(self, expire=None):
+        expire = expire or self._expire
+        return self._conn.set(self._uuid, self.to_pickle(), ex=expire)
+
+    def delete(self):
+        return self.__delete()
+
+    def save(self, expire=None):
+        return self.__save(expire)
 
 
 class Model(SerializableObject):
 
     table = None
 
-    def __init__(self, **kwargs):
-        self.__dict__ = dict.fromkeys(self.__class__.table.column_names)
-        self.__dict__.update(kwargs)
-
-    def __getitem__(self, item):
-        """
-            @param item: the name of a column.
-        """
-        if item in self.__class__.table:
-            return getattr(self, item)
-
-        raise KeyError("")
+    """
+        Class Methods
+    """
 
     @classmethod
-    def get(cls, id):
+    def __get(cls, id):
         query = """
             SELECT *
                 FROM {table_name}
@@ -94,50 +121,83 @@ class Model(SerializableObject):
             condition="{} = %s".format(cls.table.primary_key.qualified_name)
         )
         
-        with cls.table.pool.getconn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(query, (id,))
-                values = cur.fetchone()
+        values = cls.table.pool.fetchone(query, (id, ))
+
+        if values is None:
+            raise ObjectDoesNotExist
         
         keys = cls.table.column_names
         d = dict(zip(keys, values))
         return cls(**d)
 
+    @classmethod
+    def get(cls, id):
+        return cls.__get(id)
+
+    @classmethod
+    def get_many(cls, **kwargs):
+        pass
+
+    """
+        Magic Methods
+    """
+
+    def __init__(self, **kwargs):
+        self.__dict__ = dict.fromkeys(self._table.column_names)
+        self.__dict__.update(kwargs)
+
+    def __getitem__(self, item):
+        """
+            @param item: the name of a column.
+        """
+        if item in self._table:
+            return getattr(self, item)
+
+        raise KeyError("")
+
+    """
+        Properties
+    """
+
+    @property
+    def _table(self):
+        return self.__class__.table
+
     @property
     def pk(self):
-        return self[self.__class__.table.primary_key.name]
+        return self[self._table.primary_key.name]
 
-    def delete(self):
+    """
+        Instance Methods
+    """
+
+    def __delete(self):
         query = """
             DELETE FROM {table_name} 
                 WHERE {condition}
         """.format(
-            table_name=self.__class__.table,
-            condition="{} = %s".format(self.__class__.table.primary_key.qualified_name)
+            table_name=self._table,
+            condition="{} = %s".format(self._table.primary_key.qualified_name)
         )
+        try:
+            self._table.pool.execute(query, (self.pk,))
+            return True
+        except:
+            return False
 
-        with self.__class__.table.pool.getconn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(query, (self.pk,))
-                return True 
-
-        return False
-
-    def save(self):
+    def __save(self):
         if self.pk is None:
             query, vars = self._insert()
         else:
             query, vars = self._update()
 
-        with self.__class__.table.pool.getconn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(query, vars)
-                results = cur.fetchone()
-                d = dict(zip(self.__class__.table.column_names, results))
-                self.__dict__.update(d)
-                return True
-        return False
-
+        try:
+            values = self._table.pool.fetchone(query, vars)
+            d = dict(zip(self._table.column_names, values))
+            self.__dict__.update(d)
+            return True 
+        except:
+            return False
 
     def _insert(self):
         query = """
@@ -145,12 +205,12 @@ class Model(SerializableObject):
                 VALUES({values}) 
                 RETURNING *
         """.format(
-            table_name=self.__class__.table,
-            column_names=', '.join([str(col) for col in self.__class__.table if self[col.name] is not None]),
-            values=', '.join(['%s' for col in self.__class__.table if self[col.name] is not None])
+            table_name=self._table,
+            column_names=', '.join([str(col) for col in self._table if self[col.name] is not None]),
+            values=', '.join(['%s' for col in self._table if self[col.name] is not None])
         )
 
-        vars = tuple([self[col.name] for col in self.__class__.table if self[col.name] is not None])
+        vars = tuple([self[col.name] for col in self._table if self[col.name] is not None])
 
         return query, vars
 
@@ -161,17 +221,22 @@ class Model(SerializableObject):
                 WHERE {condition} 
                 RETURNING *
         """.format(
-            table_name=self.__class__.table,
-            assignments=', '.join(["{} = %s".format(col) for col in self.__class__.table]),
-            condition="{} = %s".format(self.__class__.table.primary_key.qualified_name)
+            table_name=self._table,
+            assignments=', '.join(["{} = %s".format(col) for col in self._table]),
+            condition="{} = %s".format(self._table.primary_key.qualified_name)
         )
 
-        vars = [self[col.name] for col in self.__class__.table]
+        vars = [self[col.name] for col in self._table]
         vars.append(self.pk)
         vars = tuple(vars)
 
         return query, vars
 
+    def delete(self):
+        return self.__delete()
+
+    def save(self):
+        return self.__save()
 
 
 class HybridModel(Model, RedisModel):
@@ -182,11 +247,11 @@ class HybridModel(Model, RedisModel):
 
     @classmethod
     def get(cls, id):
-        instance = cls.retrieve(id)
+        instance = cls._RedisModel__get(id)
         if instance is None:
-            instance = cls.get(id)
+            instance = cls._Model__get(id)
             if instance is not None:
-                instance.store()
+                instance._RedisModel__save()
         return instance
 
     @property
@@ -194,20 +259,18 @@ class HybridModel(Model, RedisModel):
         """
             @returns: A UUID based on the MD5 hash of the table name and primary key.
         """
-        key = "{}:{}".format(self.__class__.table.name, self.pk)
+        key = "{}:{}".format(self._table.name, self.pk)
         md5 = hashlib.md5(key.encode())
         return str(uuid.UUID(md5.hexdigest()))
-    
+
     def delete(self):
-        success = super().delete()
+        success = self._Model__delete()
         if success:
-            self.remove()
+            self._RedisModel__delete()
         return success
 
     def save(self, expire=None):
-        success = super().save()
+        success = self._Model__save()
         if success:
-            self.store(expire)
+            self._RedisModel__save(expire)
         return success
-        
-

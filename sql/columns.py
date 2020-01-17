@@ -24,7 +24,6 @@ class Column:
         item = item.lower()
 
         return {
-            'as':   self.as_,
             'asc':  self.__pos__,
             'desc': self.__neg__,
             'eq':   self.__eq__,
@@ -63,11 +62,7 @@ class Column:
 
     @property
     def qualified_name(self):
-        table_name = self.table.alias or self.table.name
-        return '"{}"."{}"'.format(table_name, self.name)
-
-    def as_(self, output_name=None):
-        return OutputExpression(self.qualified_name, output_name)
+        return '"{}"."{}"'.format(self.table.name, self.name)
 
     def assign(self, value):
         return Expression(self, '=', Value(value))
