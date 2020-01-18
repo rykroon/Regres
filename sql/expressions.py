@@ -1,40 +1,39 @@
 
 
 class Expression:
-    def __init__(self, query, *args):
-        self.query = query
-        self.vars = list(args)
+    def __init__(self, expr, *args):
+        self.expr = expr
+        self.args = args
 
     def __add__(self, other):
-        query = "{} {}".format(self.query, other.query)
-        vars = self.vars + other.vars 
-        return Expression(query, vars)
+        expr = "{}, {}".format(self.expr, other.expr)
+        args = self.args + other.args
+        return Expression(expr, *args)
 
     def __radd__(self, other):
-        query = "{} {}".format(other.query, self.query)
-        vars = other.vars + self.vars 
-        return Expression(query, vars)
+        expr = "{}, {}".format(other.expr, self.expr)
+        args = other.args + self.args
+        return Expression(expr, *args)
 
     def __repr__(self):
-        return "{}({})".format(self.__class__.__name__, self.query)
+        return "{}({})".format(self.__class__.__name__, self.expr)
 
     def __str__(self):
-        return self.query 
+        return self.expr 
 
 
 class Condition(Expression):
 
     def __and__(self, other):
-        query = "{} AND {}".format(self.query, other.query)
-        vars = self.vars + other.vars
-        return Condition(query, vars)
+        expr = "{} AND {}".format(self.expr, other.expr)
+        args = self.args + other.args
+        return Condition(expr, *args)
 
     def __invert__(self):
-        query = "NOT {}".format(self.query)
-        return Condition(query, self.vars)
+        expr = "NOT {}".format(self.expr)
+        return Condition(expr, *self.args)
 
     def __or__(self, other):
-        query = "{} OR {}".format(self.query, other.query)
-        vars = self.vars + other.vars
-        return Condition(query, vars)
-
+        expr = "{} OR {}".format(self.expr, other.expr)
+        args = self.args + other.args
+        return Condition(expr, *args)
