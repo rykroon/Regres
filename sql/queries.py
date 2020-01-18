@@ -67,16 +67,16 @@ class Query:
         return tuple(result)
 
     def all(self):
-        return self.table.pool.fetchall(str(self), self.vars)
+        return self.table._pool.fetchall(str(self), self.vars)
 
     def copy(self):
         return copy.copy(self)
 
     def execute(self):
-        self.table.pool.execute(str(self), self.vars)
+        self.table._pool.execute(str(self), self.vars)
 
     def one(self):
-        return self.table.pool.fetchone(str(self), self.vars)
+        return self.table._pool.fetchone(str(self), self.vars)
 
     def returning(self, *args):
         class_ = self.__class__
