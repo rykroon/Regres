@@ -9,11 +9,19 @@ class Column:
         self.name = name 
         self.table = table
 
+    def __add__(self, other):
+        return "{}, {}".format(self, other)
+
+    def __radd__(self, other):
+        return "{}, {}".format(other, self)
+
     def __eq__(self, value):
-        return Condition(self.qualified_name, '=', Value(value)) 
+        expr = "{} = %s".format(self.qualified_name)
+        return Condition(expr, value) 
 
     def __ge__(self, value):
-        return Condition(self.qualified_name, '>=', Value(value)) 
+        expr = "{} >= %s".format(self.qualified_name)
+        return Condition(expr, value) 
 
     def __getitem__(self, item):
         """
@@ -24,35 +32,42 @@ class Column:
         item = item.lower()
 
         return {
-            'asc':  self.__pos__,
-            'desc': self.__neg__,
-            'eq':   self.__eq__,
-            'ge':   self.__ge__,
-            'gt':   self.__gt__,
-            'le':   self.__le__,
-            'lt':   self.__lt__,
-            'ne':   self.__ne__,
-            'in':   self.in_,
-            'like': self.like
+            'asc':      self.__pos__,
+            'between':  self.between,
+            'desc':     self.__neg__,
+            'eq':       self.__eq__,
+            'ge':       self.__ge__,
+            'gt':       self.__gt__,
+            'le':       self.__le__,
+            'lt':       self.__lt__,
+            'ne':       self.__ne__,
+            'in':       self.in_,
+            'like':     self.like
         }[item]
 
     def __gt__(self, value):
-        return Condition(self.qualified_name, '>', Value(value)) 
+        expr = "{} > %s".format(self.qualified_name)
+        return Condition(expr, value) 
 
     def __le__(self, value):
-        return Condition(self.qualified_name, '<=', Value(value)) 
+        expr = "{} <= %s".format(self.qualified_name)
+        return Condition(expr, value)  
 
     def __lt__(self, value):
-        return Condition(self.qualified_name, '<', Value(value)) 
+        expr = "{} < %s".format(self.qualified_name)
+        return Condition(expr, value) 
 
     def __ne__(self, value):
-        return Condition(self.qualified_name, '!=', Value(value)) 
+        expr = "{} != %s".format(self.qualified_name)
+        return Condition(expr, value) 
 
     def __neg__(self):
-        return Expression(self.qualified_name, 'DESC')
+        expr = "{} DESC".format(self.qualified_name)
+        return Condition(expr) 
 
     def __pos__(self):
-        return Expression(self.qualified_name, 'ASC')
+        expr = "{} ASC".format(self.qualified_name)
+        return Expression(expr)
 
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__, self.name)
@@ -62,15 +77,20 @@ class Column:
 
     @property
     def qualified_name(self):
-        return '"{}"."{}"'.format(self.table.name, self.name)
+        return '"{}"."{}"'.format(self.table._name, self.name)
 
     def assign(self, value):
-        return Expression(self, '=', Value(value))
+        expr = "{} = %s".format(self)
+        return Expression(expr, value) 
+
+    def between(self, x, y):
+        expr = "{} BETWEEN %s AND %s".format(self.qualified_name)
+        return Condition(expr, x, y)
 
     def in_(self, value):
-        return Condition(self.qualified_name, 'IN', Value(value))
+        expr = "{} IN %s".format(self.qualified_name)
+        return Condition(expr, value) 
 
     def like(self, value):
-        return Condition(self.qualified_name, 'LIKE', Value(value))
-
-
+        expr = "{} LIKE %s".format(self.qualified_name)
+        return Condition(expr, value) 
