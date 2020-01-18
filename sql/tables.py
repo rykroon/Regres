@@ -1,17 +1,12 @@
 import copy
-
 from .columns import Column
 from .queries import SelectQuery
 
 class Table:
-    """
-        SQL Table
-    """
-
     def __init__(self, name, pool, schema='public'):
-        self.schema = schema
-        self.name = name
-        self.pool = pool
+        self._schema = schema
+        self._name = name
+        self._pool = pool
 
         query = """
             SELECT a.column_name, c.constraint_type 
@@ -28,7 +23,7 @@ class Table:
                 ORDER BY a.ordinal_position ASC
         """
 
-        rows = self.pool.fetchall(query, (self.schema, self.name))
+        rows = self._pool.fetchall(query, (self._schema, self._name))
         
         if rows:
             self._columns = list()
@@ -44,22 +39,11 @@ class Table:
 
             self._columns = tuple(self._columns)
 
-    def __contains__(self, key):
-        """
-            @param key: The name of a column
-            @returns: True if the column is in the table
-        """
-        return key in self.column_names
+    def __contains__(self, column):
+        return column in self.columns
 
-    def __getitem__(self, item):
-        """
-            @param item: The name of a column.
-            @returns: The column.
-        """
-        if item in self:
-            return getattr(self, item)
-
-        raise KeyError("column '{}' not found.".format(item))
+    def __getitem__(self, column_name):
+        return getattr(self, column_name)
 
     def __iter__(self):
         return iter(self.columns)
@@ -68,13 +52,13 @@ class Table:
         return len(self.columns)
 
     def __next__(self):
-        return next(self.column)
+        return next(self.columns)
 
     def __repr__(self):
-        return "{}({})".format(self.__class__.__name__, self.name)
+        return "{}({})".format(self.__class__.__name__, self._name)
 
     def __str__(self):
-        table_name = '"{}"."{}"'.format(self.schema, self.name)
+        table_name = '"{}"."{}"'.format(self._schema, self._name)
         return table_name
 
     @property
