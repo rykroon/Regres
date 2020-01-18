@@ -9,12 +9,6 @@ class Column:
         self.name = name 
         self.table = table
 
-    def __add__(self, other):
-        return "{}, {}".format(self, other)
-
-    def __radd__(self, other):
-        return "{}, {}".format(other, self)
-
     def __eq__(self, value):
         expr = "{} = %s".format(self.qualified_name)
         return Condition(expr, value) 
@@ -28,8 +22,6 @@ class Column:
             @param item: the name of an sql operator
             @return: the method associated with that operator
         """
-
-        item = item.lower()
 
         return {
             'asc':      self.__pos__,
@@ -63,7 +55,7 @@ class Column:
 
     def __neg__(self):
         expr = "{} DESC".format(self.qualified_name)
-        return Condition(expr) 
+        return Expression(expr) 
 
     def __pos__(self):
         expr = "{} ASC".format(self.qualified_name)

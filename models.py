@@ -1,5 +1,6 @@
 from datetime import datetime, date, time, timedelta
 from decimal import Decimal
+from functools import reduce
 import hashlib
 import json 
 import pickle
@@ -125,16 +126,18 @@ class Model(SerializableObject):
 
     @classmethod
     def __get(cls, id):
+        condition = cls.table.primary_key == id
+
         query = """
             SELECT *
                 FROM {table_name}
                 WHERE {condition}
         """.format(
             table_name=cls.table,
-            condition="{} = %s".format(cls.table.primary_key.qualified_name)
+            condition=condition
         )
         
-        values = cls.table.pool.fetchall(query, (id, ))
+        values = cls.table._pool.fetchall(query, condition.args)
 
         if len(values) == 0:
             raise ObjectDoesNotExist
@@ -142,9 +145,8 @@ class Model(SerializableObject):
         elif len(values) > 1:
             raise MultipleObjectsReturned
 
-        values = values[0]
-        
         keys = cls.table.column_names
+        values = values[0]
         d = dict(zip(keys, values))
         return cls(**d)
 
@@ -164,12 +166,9 @@ class Model(SerializableObject):
         self.__dict__ = dict.fromkeys(self._table.column_names)
         self.__dict__.update(kwargs)
 
-    def __getitem__(self, item):
-        """
-            @param item: the name of a column.
-        """
-        if item in self._table:
-            return getattr(self, item)
+    def __getitem__(self, column):
+        if column in self._table:
+            return getattr(self, column.name)
 
         raise KeyError("")
 
@@ -183,22 +182,25 @@ class Model(SerializableObject):
 
     @property
     def pk(self):
-        return self[self._table.primary_key.name]
+        return self[self._table.primary_key]
 
     """
         Instance Methods
     """
 
     def __delete(self):
+        condition = self._table.primary_key == self.pk
+
         query = """
             DELETE FROM {table_name} 
                 WHERE {condition}
         """.format(
             table_name=self._table,
-            condition="{} = %s".format(self._table.primary_key.qualified_name)
+            condition=condition
         )
+
         try:
-            self._table.pool.execute(query, (self.pk,))
+            self._table._pool.execute(query, condition.args)
             return True
         except:
             return False
@@ -210,7 +212,7 @@ class Model(SerializableObject):
             query, vars = self._update()
 
         try:
-            values = self._table.pool.fetchone(query, vars)
+            values = self._table._pool.fetchone(query, vars)
             d = dict(zip(self._table.column_names, values))
             self.__dict__.update(d)
             return True 
@@ -218,21 +220,29 @@ class Model(SerializableObject):
             return False
 
     def _insert(self):
+        columns = [col for col in self._table if self[col] is not None]
+        column_names = ','.join([str(col) for col in columns])
+        values = ','.join(['%s'] * len(columns))
+        
         query = """
             INSERT INTO {table_name} ({column_names}) 
                 VALUES({values}) 
                 RETURNING *
         """.format(
             table_name=self._table,
-            column_names=', '.join([str(col) for col in self._table if self[col.name] is not None]),
-            values=', '.join(['%s' for col in self._table if self[col.name] is not None])
+            column_names=column_names,
+            values=values
         )
 
-        vars = tuple([self[col.name] for col in self._table if self[col.name] is not None])
-
-        return query, vars
+        args = tuple([self[col] for col in columns])
+        return query, args
 
     def _update(self):
+        assignments = [col.assign(self[col]) for col in self._table]
+        add = lambda x, y : x + y
+        assignments = reduce(add, assignments)
+        condition = self._table.primary_key == self.pk
+
         query = """
             UPDATE {table_name} 
                 SET {assignments} 
@@ -240,15 +250,12 @@ class Model(SerializableObject):
                 RETURNING *
         """.format(
             table_name=self._table,
-            assignments=', '.join(["{} = %s".format(col) for col in self._table]),
-            condition="{} = %s".format(self._table.primary_key.qualified_name)
+            assignments=assignments,
+            condition=condition
         )
 
-        vars = [self[col.name] for col in self._table]
-        vars.append(self.pk)
-        vars = tuple(vars)
-
-        return query, vars
+        args = assignments.args + condition.args
+        return query, args
 
     def delete(self):
         return self.__delete()

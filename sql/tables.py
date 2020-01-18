@@ -58,8 +58,7 @@ class Table:
         return "{}({})".format(self.__class__.__name__, self._name)
 
     def __str__(self):
-        table_name = '"{}"."{}"'.format(self._schema, self._name)
-        return table_name
+        return '"{}"."{}"'.format(self._schema, self._name)
 
     @property
     def columns(self):
