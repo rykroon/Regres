@@ -9,6 +9,11 @@ import uuid
 class ObjectDoesNotExist(Exception):
     pass
 
+
+class MultipleObjectsReturned(Exception):
+    pass
+
+
 class SerializableObject:
     class JSONEncoder(json.JSONEncoder):
         def default(self, o):
@@ -62,15 +67,15 @@ class RedisModel(SerializableObject):
     """
 
     @classmethod
-    def __get(cls, id):
-        instance = cls.conn.get(id) 
+    def __get(cls, key):
+        instance = cls.conn.get(key) 
         if instance:
             instance = cls.from_pickle(instance)
         return instance
 
     @classmethod
-    def get(cls, id):
-        return cls.__get(id)
+    def get(cls, key):
+        return cls.__get(key)
 
     """
         Magic Methods
@@ -78,7 +83,7 @@ class RedisModel(SerializableObject):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._uuid = str(uuid.uuid4())
+        self._key = str(uuid.uuid4())
 
     """
         Properties
@@ -97,11 +102,11 @@ class RedisModel(SerializableObject):
     """
 
     def __delete(self):
-        return self._conn.delete(self._uuid)
+        return self._conn.delete(self._key)
 
     def __save(self, expire=None):
         expire = expire or self._expire
-        return self._conn.set(self._uuid, self.to_pickle(), ex=expire)
+        return self._conn.set(self._key, self.to_pickle(), ex=expire)
 
     def delete(self):
         return self.__delete()
@@ -129,10 +134,15 @@ class Model(SerializableObject):
             condition="{} = %s".format(cls.table.primary_key.qualified_name)
         )
         
-        values = cls.table.pool.fetchone(query, (id, ))
+        values = cls.table.pool.fetchall(query, (id, ))
 
-        if values is None:
+        if len(values) == 0:
             raise ObjectDoesNotExist
+
+        elif len(values) > 1:
+            raise MultipleObjectsReturned
+
+        values = values[0]
         
         keys = cls.table.column_names
         d = dict(zip(keys, values))
@@ -263,7 +273,7 @@ class HybridModel(Model, RedisModel):
         return instance
 
     @property
-    def _uuid(self):
+    def _key(self):
         """
             @returns: A UUID based on the MD5 hash of the table name and primary key.
         """
