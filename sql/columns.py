@@ -8,6 +8,7 @@ class Column:
     def __init__(self, name, table):
         self.name = name 
         self.table = table
+        self._attr_name = self.name.replace(' ', '_').lower()
 
     def __eq__(self, value):
         expr = "{} = %s".format(self.qualified_name)

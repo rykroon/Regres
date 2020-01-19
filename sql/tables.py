@@ -31,7 +31,7 @@ class Table:
                 col_name = row[0]
                 col = Column(col_name, self)
                 
-                setattr(self, col_name, col)
+                setattr(self, col._attr_name, col)
                 self._columns.append(col)
 
                 if row[1] == 'PRIMARY KEY':
