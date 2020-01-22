@@ -15,19 +15,32 @@ class MultipleObjectsReturned(Exception):
     pass
 
 
+class JSONEncoder(json.JSONEncoder):
+    def default(self, o):
+        if type(o) in (datetime, date, time):
+            return o.isoformat()
+
+        elif type(o) == timedelta:
+            return o.total_seconds()
+
+        elif type(o) == Decimal:
+            return float(o)
+
+        return super().default(o)
+
+
 class SerializableObject:
-    class JSONEncoder(json.JSONEncoder):
-        def default(self, o):
-            if type(o) in (datetime, date, time):
-                return o.isoformat()
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
 
-            elif type(o) == timedelta:
-                return o.total_seconds()
+    def to_dict(self):
+        return vars(self)
 
-            elif type(o) == Decimal:
-                return float(o)
+    def to_json(self, cls=JSONEncoder, **kwargs):
+        return json.dumps(self.to_dict(), cls=cls, **kwargs) 
 
-            return super().default(o)
+    def to_pickle(self):
+        return pickle.dumps(self) 
 
     @classmethod
     def from_dict(cls, d):
@@ -45,39 +58,11 @@ class SerializableObject:
             raise TypeError("Object is not of type {}".format(cls.__name__))
         return instance
 
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
-
-    def to_dict(self):
-        return vars(self)
-
-    def to_json(self, cls=JSONEncoder, **kwargs):
-        return json.dumps(self.to_dict(), cls=cls, **kwargs) 
-
-    def to_pickle(self):
-        return pickle.dumps(self) 
-
 
 class RedisModel(SerializableObject):
 
     conn = None
     expire = None
-
-    """
-        Class Methods
-    """
-
-    @classmethod
-    def _get_from_redis(cls, id):
-        key = hash((cls.__name__, id))
-        instance = cls.conn.get(key)
-        if instance:
-            instance = cls.from_pickle(instance)
-        return instance
-
-    @classmethod
-    def get(cls, id):
-        return cls._get_from_redis(id)
 
     """
         Magic Methods
@@ -107,6 +92,12 @@ class RedisModel(SerializableObject):
         Instance Methods
     """
 
+    def delete(self):
+        return self._delete_from_redis()
+
+    def save(self, expire=None):
+        return self._save_to_redis(expire)
+
     def _delete_from_redis(self):
         return self._conn.delete(hash(self))
 
@@ -114,51 +105,26 @@ class RedisModel(SerializableObject):
         expire = expire or self._expire
         return self._conn.set(hash(self), self.to_pickle(), ex=expire)
 
-    def delete(self):
-        return self._delete_from_redis()
-
-    def save(self, expire=None):
-        return self._save_to_redis(expire)
-
-
-class Model(SerializableObject):
-
-    table = None
-
     """
         Class Methods
     """
 
     @classmethod
-    def _get_from_postgres(cls, id):
-        query = """
-            SELECT *
-                FROM %s
-                WHERE %s
-        """
-        condition = cls.table.primary_key == id
-        args = (cls.table, condition)
-        
-        values = cls.table._pool.fetchall(query, args)
-
-        if len(values) == 0:
-            raise ObjectDoesNotExist
-
-        elif len(values) > 1:
-            raise MultipleObjectsReturned
-
-        keys = cls.table.column_names
-        values = values[0]
-        d = dict(zip(keys, values))
-        return cls(**d)
-
-    @classmethod
     def get(cls, id):
-        return cls._get_from_postgres(id)
+        return cls._get_from_redis(id)
 
     @classmethod
-    def get_many(cls, **kwargs):
-        pass
+    def _get_from_redis(cls, id):
+        key = hash((cls.__name__, id))
+        instance = cls.conn.get(key)
+        if instance:
+            instance = cls.from_pickle(instance)
+        return instance
+
+
+class Model(SerializableObject):
+
+    table = None
 
     """
         Magic Methods
@@ -177,18 +143,23 @@ class Model(SerializableObject):
     """
         Properties
     """
+    @property
+    def pk(self):
+        return self[self._table.primary_key]
 
     @property
     def _table(self):
         return self.__class__.table
 
-    @property
-    def pk(self):
-        return self[self._table.primary_key]
-
     """
         Instance Methods
     """
+
+    def delete(self):
+        return self._delete_from_postgres()
+
+    def save(self):
+        return self._save_to_postgres()
 
     def _delete_from_postgres(self):
         query = """
@@ -250,12 +221,41 @@ class Model(SerializableObject):
 
         args = assignments.args + condition.args
         return query, args
+    
+    """
+        Class Methods
+    """
 
-    def delete(self):
-        return self._delete_from_postgres()
+    @classmethod
+    def get(cls, id):
+        return cls._get_from_postgres(id)
 
-    def save(self):
-        return self._save_to_postgres()
+    @classmethod
+    def get_many(cls, **kwargs):
+        pass
+
+    @classmethod
+    def _get_from_postgres(cls, id):
+        query = """
+            SELECT *
+                FROM %s
+                WHERE %s
+        """
+        condition = cls.table.primary_key == id
+        args = (cls.table, condition)
+        
+        values = cls.table._pool.fetchall(query, args)
+
+        if len(values) == 0:
+            raise ObjectDoesNotExist
+
+        elif len(values) > 1:
+            raise MultipleObjectsReturned
+
+        keys = cls.table.column_names
+        values = values[0]
+        d = dict(zip(keys, values))
+        return cls(**d)
 
 
 class HybridModel(Model, RedisModel):
@@ -263,15 +263,6 @@ class HybridModel(Model, RedisModel):
     conn = None
     expire = None
     table = None
-
-    @classmethod
-    def get(cls, id):
-        instance = cls._get_from_redis(id)
-        if instance is None:
-            instance = cls._get_from_postgres(id)
-            if instance is not None:
-                instance._save_to_redis()
-        return instance
 
     def __hash__(self):
         return hash((self.__class__.__name__, self.pk))
@@ -287,3 +278,12 @@ class HybridModel(Model, RedisModel):
         if success:
             self._save_to_redis(expire)
         return success
+
+    @classmethod
+    def get(cls, id):
+        instance = cls._get_from_redis(id)
+        if instance is None:
+            instance = cls._get_from_postgres(id)
+            if instance is not None:
+                instance._save_to_redis()
+        return instance
