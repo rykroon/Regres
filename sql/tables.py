@@ -1,4 +1,7 @@
 import copy
+
+from psycopg2.extensions import AsIs, adapt, register_adapter
+
 from .columns import Column
 from .queries import SelectQuery
 
@@ -24,6 +27,9 @@ class Table:
         """
 
         rows = self._pool.fetchall(query, (self._schema, self._name))
+
+        if not rows:
+            raise Exception("Cant find table")
         
         if rows:
             self._columns = list()
@@ -74,5 +80,12 @@ class Table:
 
     def query(self):
         return SelectQuery(self)
+
+
+def adapt_table(table):
+    return AsIs(str(table))
+
+
+register_adapter(Table, adapt_table)
 
 

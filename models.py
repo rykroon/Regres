@@ -68,15 +68,16 @@ class RedisModel(SerializableObject):
     """
 
     @classmethod
-    def __get(cls, key):
-        instance = cls.conn.get(key) 
+    def _get_from_redis(cls, id):
+        key = hash((cls.__name__, id))
+        instance = cls.conn.get(key)
         if instance:
             instance = cls.from_pickle(instance)
         return instance
 
     @classmethod
-    def get(cls, key):
-        return cls.__get(key)
+    def get(cls, id):
+        return cls._get_from_redis(id)
 
     """
         Magic Methods
@@ -84,7 +85,11 @@ class RedisModel(SerializableObject):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._key = str(uuid.uuid4())
+        if not self.id:
+            self.id = str(uuid.uuid4())
+
+    def __hash__(self):
+        return hash((self.__class__.__name__, self.id))
 
     """
         Properties
@@ -102,18 +107,18 @@ class RedisModel(SerializableObject):
         Instance Methods
     """
 
-    def __delete(self):
-        return self._conn.delete(self._key)
+    def _delete_from_redis(self):
+        return self._conn.delete(hash(self))
 
-    def __save(self, expire=None):
+    def _save_to_redis(self, expire=None):
         expire = expire or self._expire
-        return self._conn.set(self._key, self.to_pickle(), ex=expire)
+        return self._conn.set(hash(self), self.to_pickle(), ex=expire)
 
     def delete(self):
-        return self.__delete()
+        return self._delete_from_redis()
 
     def save(self, expire=None):
-        return self.__save(expire)
+        return self._save_to_redis(expire)
 
 
 class Model(SerializableObject):
@@ -125,19 +130,16 @@ class Model(SerializableObject):
     """
 
     @classmethod
-    def __get(cls, id):
-        condition = cls.table.primary_key == id
-
+    def _get_from_postgres(cls, id):
         query = """
             SELECT *
-                FROM {table_name}
-                WHERE {condition}
-        """.format(
-            table_name=cls.table,
-            condition=condition
-        )
+                FROM %s
+                WHERE %s
+        """
+        condition = cls.table.primary_key == id
+        args = (cls.table, condition)
         
-        values = cls.table._pool.fetchall(query, condition.args)
+        values = cls.table._pool.fetchall(query, args)
 
         if len(values) == 0:
             raise ObjectDoesNotExist
@@ -152,7 +154,7 @@ class Model(SerializableObject):
 
     @classmethod
     def get(cls, id):
-        return cls.__get(id)
+        return cls._get_from_postgres(id)
 
     @classmethod
     def get_many(cls, **kwargs):
@@ -188,24 +190,21 @@ class Model(SerializableObject):
         Instance Methods
     """
 
-    def __delete(self):
-        condition = self._table.primary_key == self.pk
-
+    def _delete_from_postgres(self):
         query = """
-            DELETE FROM {table_name} 
-                WHERE {condition}
-        """.format(
-            table_name=self._table,
-            condition=condition
-        )
+            DELETE FROM %s 
+                WHERE %s
+        """
+        condition = self._table.primary_key == self.pk
+        args = (self._table, condition)
 
         try:
-            self._table._pool.execute(query, condition.args)
+            self._table._pool.execute(query, args)
             return True
         except:
             return False
 
-    def __save(self):
+    def _save_to_postgres(self):
         if self.pk is None:
             query, vars = self._insert()
         else:
@@ -220,21 +219,16 @@ class Model(SerializableObject):
             return False
 
     def _insert(self):
-        columns = [col for col in self._table if self[col] is not None]
-        column_names = ','.join([str(col) for col in columns])
-        values = ','.join(['%s'] * len(columns))
-        
         query = """
-            INSERT INTO {table_name} ({column_names}) 
-                VALUES({values}) 
+            INSERT INTO %s %s
+                VALUES %s
                 RETURNING *
-        """.format(
-            table_name=self._table,
-            column_names=column_names,
-            values=values
-        )
+        """
 
-        args = tuple([self[col] for col in columns])
+        column_names = tuple([col for col in self._table if self[col] is not None])
+        values = tuple(self[col] for col in self._table.columns)
+
+        args = (self._table, column_names, values)
         return query, args
 
     def _update(self):
@@ -258,10 +252,10 @@ class Model(SerializableObject):
         return query, args
 
     def delete(self):
-        return self.__delete()
+        return self._delete_from_postgres()
 
     def save(self):
-        return self.__save()
+        return self._save_to_postgres()
 
 
 class HybridModel(Model, RedisModel):
@@ -272,30 +266,24 @@ class HybridModel(Model, RedisModel):
 
     @classmethod
     def get(cls, id):
-        instance = cls._RedisModel__get(id)
+        instance = cls._get_from_redis(id)
         if instance is None:
-            instance = cls._Model__get(id)
+            instance = cls._get_from_postgres(id)
             if instance is not None:
-                instance._RedisModel__save()
+                instance._save_to_redis()
         return instance
 
-    @property
-    def _key(self):
-        """
-            @returns: A UUID based on the MD5 hash of the table name and primary key.
-        """
-        key = "{}:{}".format(self._table.name, self.pk)
-        md5 = hashlib.md5(key.encode())
-        return str(uuid.UUID(md5.hexdigest()))
+    def __hash__(self):
+        return hash((self.__class__.__name__, self.pk))
 
     def delete(self):
-        success = self._Model__delete()
+        success = self._delete_from_postgres()
         if success:
-            self._RedisModel__delete()
+            self._delete_from_redis()
         return success
 
     def save(self, expire=None):
-        success = self._Model__save()
+        success = self._save_to_postgres()
         if success:
-            self._RedisModel__save(expire)
+            self._save_to_redis(expire)
         return success

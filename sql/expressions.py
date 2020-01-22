@@ -1,3 +1,4 @@
+from psycopg2.extensions import AsIs, adapt, register_adapter
 
 
 class Expression:
@@ -19,11 +20,10 @@ class Expression:
         return "{}({})".format(self.__class__.__name__, self)
 
     def __str__(self):
-        return self.expr 
+        return self.expr
 
 
 class Condition(Expression):
-
     def __and__(self, other):
         expr = "{} AND {}".format(self, other)
         args = self.args + other.args
@@ -37,3 +37,11 @@ class Condition(Expression):
         expr = "{} OR {}".format(self, other)
         args = self.args + other.args
         return Condition(expr, *args)
+
+
+def adapt_expression(expr):
+    args = tuple([adapt(arg).getquoted().decode() for arg in expr.args])
+    return AsIs(str(expr) % args)
+    
+
+register_adapter(Expression, adapt_expression)

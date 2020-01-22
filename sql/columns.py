@@ -1,3 +1,5 @@
+from psycopg2.extensions import AsIs, adapt, register_adapter
+from psycopg2.extensions import Column as BaseColumn
 from .expressions import *
 
 
@@ -24,6 +26,8 @@ class Column:
             @return: the method associated with that operator
         """
 
+        #possible remove asc and desc so that this is used only for lookups
+
         return {
             'asc':      self.__pos__,
             'between':  self.between,
@@ -35,6 +39,8 @@ class Column:
             'lt':       self.__lt__,
             'ne':       self.__ne__,
             'in':       self.in_,
+            'is':       self.is_,
+            'isnot':    self.isnot,
             'like':     self.like
         }[item]
 
@@ -72,6 +78,9 @@ class Column:
     def qualified_name(self):
         return '"{}"."{}"'.format(self.table._name, self.name)
 
+    def asc(self):
+        return self.__pos__()
+
     def assign(self, value):
         expr = "{} = %s".format(self)
         return Expression(expr, value) 
@@ -80,10 +89,28 @@ class Column:
         expr = "{} BETWEEN %s AND %s".format(self.qualified_name)
         return Condition(expr, x, y)
 
+    def desc(self):
+        return self.__neg__()
+
     def in_(self, value):
         expr = "{} IN %s".format(self.qualified_name)
         return Condition(expr, value) 
 
+    def is_(self, value):
+        expr = "{} IS %s".format(self.qualified_name)
+        return Condition(expr)
+
+    def isnot(self, value):
+        expr = "{} IS NOT %s".format(self.qualified_name)
+        return Condition(expr)
+
     def like(self, value):
         expr = "{} LIKE %s".format(self.qualified_name)
         return Condition(expr, value) 
+
+
+def adapt_column(column):
+    return AsIs(str(column))
+
+
+register_adapter(Column, adapt_column)
