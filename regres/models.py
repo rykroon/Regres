@@ -70,7 +70,7 @@ class RedisModel(SerializableObject):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        if not self.id:
+        if not hasattr(self, 'id'):
             self.id = str(uuid.uuid4())
 
     def __hash__(self):
@@ -192,7 +192,8 @@ class Model(SerializableObject):
             d = dict(zip(self._table.column_names, values))
             self.__dict__.update(d)
             return True 
-        except:
+        except Exception as e:
+            print(e)
             return False
 
     def _insert(self):
@@ -203,7 +204,7 @@ class Model(SerializableObject):
         """
 
         column_names = tuple([col for col in self._table if self[col] is not None])
-        values = tuple(self[col] for col in self._table.columns)
+        values = tuple([self[col] for col in self._table if self[col] is not None])
 
         args = (self._table, column_names, values)
         return query, args

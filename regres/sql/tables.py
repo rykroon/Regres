@@ -3,7 +3,7 @@ import copy
 from psycopg2.extensions import AsIs, adapt, register_adapter
 
 from .columns import Column
-from .queries import SelectQuery
+from .queries import Query
 
 class Table:
     def __init__(self, name, pool, schema='public'):
@@ -79,7 +79,7 @@ class Table:
         return self._primary_key
 
     def query(self):
-        return SelectQuery(self)
+        return Query(self)
 
 
 def adapt_table(table):
