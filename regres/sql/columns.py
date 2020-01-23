@@ -62,14 +62,14 @@ class Column:
 
     def __neg__(self):
         expr = "{} DESC".format(self.qualified_name)
-        return Expression(expr) 
+        return SortExpression(expr) 
 
     def __pos__(self):
         expr = "{} ASC".format(self.qualified_name)
-        return Expression(expr)
+        return SortExpression(expr)
 
     def __repr__(self):
-        return "{}({})".format(self.__class__.__name__, self.name)
+        return "{}(name={})".format(self.__class__.__name__, repr(self.name))
 
     def __str__(self):
         return '"{}"'.format(self.name)

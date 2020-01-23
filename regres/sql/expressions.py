@@ -39,6 +39,10 @@ class Condition(Expression):
         return Condition(expr, *args)
 
 
+class SortExpression(Expression):
+    pass
+
+
 def adapt_expression(expr):
     args = tuple([adapt(arg).getquoted().decode() for arg in expr.args])
     return AsIs(str(expr) % args)

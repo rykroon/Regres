@@ -29,7 +29,7 @@ class Table:
         rows = self._pool.fetchall(query, (self._schema, self._name))
 
         if not rows:
-            raise Exception("Cant find table")
+            raise Exception("Table '{}' does not exist.".format(self._name))
         
         if rows:
             self._columns = list()
@@ -61,7 +61,7 @@ class Table:
         return next(self.columns)
 
     def __repr__(self):
-        return "{}({})".format(self.__class__.__name__, self._name)
+        return "{}(name={})".format(self.__class__.__name__, repr(self._name))
 
     def __str__(self):
         return '"{}"."{}"'.format(self._schema, self._name)

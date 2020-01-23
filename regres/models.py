@@ -76,6 +76,9 @@ class RedisModel(SerializableObject):
     def __hash__(self):
         return hash((self.__class__.__name__, self.id))
 
+    def __repr__(self):
+        return "{}(id={})".format(self.__class__.__name__, repr(self.id))
+
     """
         Properties
     """
@@ -139,6 +142,9 @@ class Model(SerializableObject):
             return getattr(self, column.name)
 
         raise KeyError("")
+
+    def __repr__(self):
+        return '{}(pk={})'.format(self.__class__.__name__, repr(self.pk))
 
     """
         Properties
