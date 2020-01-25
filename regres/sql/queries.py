@@ -7,30 +7,35 @@ class Query:
     
     def __init__(self, table):
         self.table = table
-        self.args = ()
-        self.fields = []
-        self.condition = None
-        self.sort_expressions = [] 
-        self.limit = 0
-        self.offset = 0
+        self._args = ()
+        self._fields = []
+        self._condition = None
+        self._sort_expressions = [] 
+        self._count = 0
+        self._start = 0
+
+    def __contains__(self, key):
+        pass
 
     def __getitem__(self, item):
         if type(item) != slice:
             raise TypeError("")
 
-        if item.start < 0 or item.stop < 0 or item.step is not None:
-            raise ValueError("")
-
-        q = self.copy()
-        q.offset = item.start 
-        q.limit = item.stop - item.start
+        q = self.offset(item.start)
+        q = q.limit(item.stop - q._start)
         return q
+
+    def __iter__(self):
+        pass
 
     def __len__(self):
         return self.count()
 
+    def __next__(self):
+        pass
+
     def __repr__(self):
-        return "{}(table='{}')".format(self.__class__.__name__, self.table._name)
+        return "{}(table={})".format(self.__class__.__name__, repr(self.table._name))
 
     def __str__(self):
         return self.query
@@ -38,40 +43,43 @@ class Query:
     @property
     def query(self):
         add = lambda x, y: x + y
-        self.args = []
+        self._args = []
 
-        if self.fields:
+        if self._fields:
             fields = reduce(add, self.fields)
             query = "SELECT %s"
-            self.args = [fields]
+            self._args = [fields]
         else:
             query = 'SELECT *'
-            self.args = []
+            self._args = []
 
         query = "{} FROM %s".format(query)
-        self.args.append(self.table)
+        self._args.append(self.table)
 
-        if self.condition:
+        if self._condition:
             query = "{} WHERE %s".format(query)
-            self.args.append(self.condition)
+            self._args.append(self.condition)
 
-        if self.sort_expressions:
+        if self._sort_expressions:
             expression = reduce(add, self.sort_expressions)
             query = "{} ORDER BY %s".format(query)
-            self.args.append(expression)
+            self._args.append(expression)
 
-        if self.limit:
+        if self._count:
             query = "{} LIMIT %s".format(query)
-            self.args.append(self.limit)
+            self._args.append(self._count)
 
-        if self.offset:
+        if self._start:
             query = "{} OFFSET %s".format(query)
-            self.args.append(self.offset)
+            self._args.append(self._start)
 
-        self.args = tuple(self.args)
+        self._args = tuple(self._args)
 
         return query
 
+    def select(self, *args):
+        #args can be of type str, Column, or Expression ?
+        pass
 
     def where(self, *args, **kwargs):
         #add logic for clearing condition
@@ -83,29 +91,29 @@ class Query:
             q = self._filter_by_kwargs(**kwargs)
 
         return q
-        
-    def limit(self, count):
-        q = self.copy()
-        q.limit = count or 0
-        return q
-
-    def offset(self, start):
-        q = self.copy()
-        q.offset = start or 0
-        return q
 
     def order_by(self, *args):
         #make sure args are of type SortExpression, or str
         q = self.copy()
-        q.sort_expressions.extend(args)
+        q._sort_expressions.extend(args)
         return q 
+        
+    def limit(self, count):
+        q = self.copy()
+        q._count = 0 if not count or count < 0 else count
+        return q
+
+    def offset(self, start):
+        q = self.copy()
+        q._start = 0 if not start or start < 0 else start 
+        return q
 
     def all(self):
-        rows = self.table._pool.fetchall(self.query, self.args)
+        rows = self.table._pool.fetchall(self.query, self._args)
         return rows
 
     def one(self):
-        row = self.table._pool.fetchone(self.query, self.args)
+        row = self.table._pool.fetchone(self.query, self._args)
         return row
 
     def count(self):
@@ -123,10 +131,10 @@ class Query:
 
         q = self.copy()
 
-        if q.condition:
-            q.condition = q.condition & condition
+        if q._condition:
+            q._condition = q._condition & condition
         else:
-            q.condition = condition
+            q._condition = condition
 
         return q
 

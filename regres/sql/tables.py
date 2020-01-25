@@ -7,8 +7,8 @@ from .queries import Query
 
 class Table:
     def __init__(self, name, pool, schema='public'):
-        self._schema = schema
-        self._name = name
+        self._schema = schema #maybe change to table_schema
+        self._name = name # maybe change to table_name
         self._pool = pool
 
         query = """
@@ -45,11 +45,11 @@ class Table:
 
             self._columns = tuple(self._columns)
 
-    def __contains__(self, column):
-        return column in self.columns
+    def __contains__(self, item):
+        return item in self.columns
 
-    def __getitem__(self, column_name):
-        return getattr(self, column_name)
+    def __getitem__(self, key):
+        return getattr(self, key)
 
     def __iter__(self):
         return iter(self.columns)
